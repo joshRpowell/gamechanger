@@ -734,5 +734,33 @@ RSpec.describe Gamechanger::Formatters::Markdown do
       output = fmt.hitting(rows)
       expect(output).to include('→')
     end
+
+    it 'renders ↘ for cold batter (7-day OBP well below season OBP)' do
+      rows = [{
+        'batter_name' => 'Cold', 'games' => 10,
+        'total_ab' => 20, 'total_hits' => 16, 'total_walks' => 0, 'total_k' => 1,
+        'seven_day_ab' => 4, 'seven_day_hits' => 1, 'seven_day_walks' => 0
+      }]
+      output = fmt.hitting(rows)
+      expect(output).to include('↘')
+    end
+  end
+
+  describe '#brief (pitcher plan ✅ Available)' do
+    it 'renders ✅ Available for fully rested pitcher' do
+      today = Date.today
+      fresh_brief = instance_double(
+        Gamechanger::PreGameBrief,
+        pitcher_plan: [{
+          'pitcher_name' => 'Fresh', 'seven_day_total' => '20',
+          'remaining' => 85, 'available' => true, 'high_load' => false,
+          'avail_date' => nil
+        }],
+        lineup: instance_double(Gamechanger::LineupOptimizer, ranked: [], unranked: []),
+        equity_flags: [], development_spotlights: []
+      )
+      output = fmt.brief(today, nil, fresh_brief)
+      expect(output).to include('✅ Available')
+    end
   end
 end

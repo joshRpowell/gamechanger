@@ -211,5 +211,42 @@ RSpec.describe Gamechanger::Syncer do
         expect { syncer.run }.to raise_error(Gamechanger::APIShapeError, /Unexpected schedule/)
       end
     end
+
+    context 'when an event has a completed/final status' do
+      before do
+        final_event = past_game_event.merge(
+          'event' => past_game_event['event'].merge('status' => 'completed')
+        )
+        stub_request(:get, /schedule/)
+          .to_return(status: 200, body: [final_event].to_json)
+        allow(syncer).to receive(:sleep)
+      end
+
+      it 'normalizes completed status to final' do
+        syncer.run
+        game = storage.all_games.first
+        expect(game['status']).to eq('final')
+      end
+    end
+
+    context 'when an event has an unrecognized status' do
+      before do
+        unknown_event = past_game_event.merge(
+          'event' => past_game_event['event'].merge('status' => 'unknown_xyz')
+        )
+        stub_request(:get, /schedule/)
+          .to_return(status: 200, body: [unknown_event].to_json)
+        # Return empty boxscore so stats.any? is false and status isn't overwritten to 'final'
+        stub_request(:get, /boxscore/)
+          .to_return(status: 200, body: { 'wGP47FexatoQ' => { 'players' => [], 'groups' => [] } }.to_json)
+        allow(syncer).to receive(:sleep)
+      end
+
+      it 'preserves unrecognized status as-is (downcased)' do
+        syncer.run
+        game = storage.all_games.first
+        expect(game['status']).to eq('unknown_xyz')
+      end
+    end
   end
 end

@@ -210,5 +210,17 @@ RSpec.describe Gamechanger::DevelopmentArc do
     it 'returns strike command sharpening for improving pitcher' do
       expect(narrative(0.58, 0.67, 0.70, 8, type: :pitch)).to match(/Strike command sharpening/)
     end
+
+    it 'returns strong start coaching opportunity when first half better than second for pitcher' do
+      expect(narrative(0.65, 0.55, 0.50, 8, type: :pitch)).to match(/Strong start/)
+    end
+
+    it 'returns finding their groove when pitcher recent >> first half but halves are similar' do
+      expect(narrative(0.60, 0.62, 0.68, 8, type: :pitch)).to match(/Finding their groove/)
+    end
+
+    it 'returns consistent command for steady pitcher' do
+      expect(narrative(0.60, 0.62, 0.62, 8, type: :pitch)).to match(/Consistent command/)
+    end
   end
 end

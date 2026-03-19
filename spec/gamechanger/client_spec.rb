@@ -155,4 +155,46 @@ RSpec.describe Gamechanger::Client do
       expect { client.teams }.not_to raise_error
     end
   end
+
+  describe 'error handling edge cases' do
+    let(:config) do
+      instance_double(
+        Gamechanger::Config,
+        email:        'test@example.com',
+        password:     'secret',
+        cached_token: 'valid-token',
+        team_id:      'team-123',
+        season:       2026,
+        device_id:    'abc123def456abc123def456abc123de'
+      )
+    end
+
+    it 'raises NetworkError on SSL error' do
+      stub_request(:get, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::TEAMS_PATH}")
+        .to_raise(OpenSSL::SSL::SSLError.new('certificate verify failed'))
+      expect { client.teams }.to raise_error(Gamechanger::NetworkError, /SSL error/)
+    end
+
+    it 'raises NetworkError when rate limited on second attempt (429 twice)' do
+      allow(client).to receive(:sleep)
+      stub_request(:get, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::TEAMS_PATH}")
+        .to_return(
+          { status: 429, body: 'Too Many Requests' },
+          { status: 429, body: 'Too Many Requests' }
+        )
+      expect { client.teams }.to raise_error(Gamechanger::NetworkError, /Rate limited/)
+    end
+
+    it 'raises NetworkError on unexpected HTTP status (500)' do
+      stub_request(:get, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::TEAMS_PATH}")
+        .to_return(status: 500, body: 'Internal Server Error')
+      expect { client.teams }.to raise_error(Gamechanger::NetworkError, /500/)
+    end
+
+    it 'raises APIShapeError on malformed JSON response' do
+      stub_request(:get, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::TEAMS_PATH}")
+        .to_return(status: 200, body: 'not { valid json }}}', headers: { 'Content-Type' => 'application/json' })
+      expect { client.teams }.to raise_error(Gamechanger::APIShapeError, /not JSON/)
+    end
+  end
 end
