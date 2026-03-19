@@ -48,7 +48,7 @@ Deferred work captured during /plan-eng-review and /plan-ceo-review on 2026-03-1
 
 ---
 
-## 1. Extract `Syncer` class from CLI
+## ~~1. Extract `Syncer` class from CLI~~ ✅
 
 **What:** Move `sync_data`, `extract_games`, `parse_game` (~70 lines) from `cli.rb` into `lib/gamechanger/syncer.rb`. CLI calls `Syncer.new(config, storage).run(force:)`.
 **Why:** Business logic in the CLI is untestable and blocks retry logic, progress reporting, or incremental sync without touching Thor internals.
@@ -59,7 +59,7 @@ Deferred work captured during /plan-eng-review and /plan-ceo-review on 2026-03-1
 
 ---
 
-## 2. CLI happy-path tests for 5 commands
+## ~~2. CLI happy-path tests for 5 commands~~ ✅
 
 **What:** Add RSpec tests in `cli_spec.rb` for `pitches`, `brief`, `availability`, `plan`, `hitting` — each seeding an in-memory `Storage.new(data_dir: ':memory:')`, stubbing `Storage.new`, asserting exit 0 + table output.
 **Why:** Every command's rendering pipeline is untested. A nil field or missing key in a new data shape would crash silently.
@@ -70,7 +70,7 @@ Deferred work captured during /plan-eng-review and /plan-ceo-review on 2026-03-1
 
 ---
 
-## 3. `setup` command tests (3 scenarios)
+## ~~3. `setup` command tests (3 scenarios)~~ ✅
 
 **What:** New `spec/gamechanger/cli_setup_spec.rb` with: (1) single-team success — config written, exit 0; (2) auth failure — exits 2 with message; (3) multiple teams — prompts for selection.
 **Why:** `setup` is the mandatory first step and contains the most complex branching in the codebase. Zero coverage here.
@@ -81,7 +81,7 @@ Deferred work captured during /plan-eng-review and /plan-ceo-review on 2026-03-1
 
 ---
 
-## 4. Fix multiple Storage connections per command
+## ~~4. Fix multiple Storage connections per command~~ ✅
 
 **What:** In `cli.rb`, create one `Storage.new` per command and pass it into `resolve_target(date_opt, storage:)` and `resolve_plan_games(storage:)`.
 **Why:** `availability`, `lineup`, `brief`, and `plan` currently open 2–3 SQLite connections per invocation. None are explicitly closed.
@@ -92,7 +92,7 @@ Deferred work captured during /plan-eng-review and /plan-ceo-review on 2026-03-1
 
 ---
 
-## 5. Rescue SQLite3 exceptions in CLI commands
+## ~~5. Rescue SQLite3 exceptions in CLI commands~~ ✅
 
 **What:** Add `rescue SQLite3::Exception => e` (or a narrow `StorageError` wrapper) to command bodies. Show: 'Cache read failed — try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`'.
 **Why:** DB corruption currently produces a raw Ruby backtrace. Two critical failure modes (corrupt db, missing permissions) have no user-friendly error handling.
@@ -103,7 +103,7 @@ Deferred work captured during /plan-eng-review and /plan-ceo-review on 2026-03-1
 
 ---
 
-## 6. README security note + dead code cleanup
+## ~~6. README security note + dead code cleanup~~ ✅
 
 **What:** (1) Add to README under "Data storage": "Password stored in plaintext (mode 0600) — same security model as AWS CLI and Heroku CLI." (2) Delete `Client#game_detail` (unused, `client.rb:84–86`). (3) Either pass `config.season` to the API schedule call or remove the `season` config field entirely.
 **Why:** Transparency about the security model; dead code causes confusion when the API notes reference it; `season` config is documented but has no effect.
@@ -112,7 +112,7 @@ Deferred work captured during /plan-eng-review and /plan-ceo-review on 2026-03-1
 
 ---
 
-## 7. Minor DRY cleanup
+## ~~7. Minor DRY cleanup~~ ✅ (partial: TABLE_STYLE constant; build_player_index module skipped per TODO note; availability refactor deferred)
 
 **What:** (1) Extract `TABLE_STYLE = { border_x: '─', border_i: '┼', border_y: '│' }.freeze` constant in `formatters/table.rb` (used 15 times). (2) Extract `build_player_index` shared between `BoxscoreParser` and `BatterStatsParser` into a `Boxscore::PlayerIndex` module. (3) Refactor `Formatters::Table#availability` to accept pre-enriched rows (same shape as `PreGameBrief#pitcher_plan`) rather than recomputing `available?/remaining/avail_date/high_load` itself.
 **Why:** Small DRY violations — not bugs, but friction when availability rules or border styles change.
