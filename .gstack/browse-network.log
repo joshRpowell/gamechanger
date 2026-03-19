@@ -1,0 +1,3 @@
+[2026-03-19T12:34:36.784Z] GET http://localhost:3000/ → pending (?ms, ?B)
+[2026-03-19T12:34:36.851Z] GET http://localhost:4000/ → pending (?ms, ?B)
+[2026-03-19T12:34:36.889Z] GET http://localhost:8080/ → pending (?ms, ?B)

@@ -14,12 +14,15 @@ module Gamechanger
     # ─── setup ────────────────────────────────────────────────────────────────
 
     desc 'setup', 'Configure Gamechanger credentials and team'
+    option :email,      type: :string, desc: 'Account email'
+    option :password,   type: :string, desc: 'Account password'
+    option :'team-slug', type: :string, desc: 'Team identifier'
     def setup
       say 'Gamechanger Setup', :cyan
       say '─' * 40
 
-      email    = ask('Email:')
-      password = ask('Password:', echo: false)
+      email    = options[:email]    || ENV['GAMECHANGER_EMAIL']    || ask('Email:')
+      password = options[:password] || ENV['GAMECHANGER_PASSWORD'] || ask('Password:', echo: false)
       say ''
 
       say 'Authenticating...', :cyan
@@ -30,10 +33,10 @@ module Gamechanger
       begin
         client.authenticate
       rescue AuthError => e
-        say "Authentication failed: #{e.message}", :red
+        say_error "Authentication failed: #{e.message}", :red
         exit 2
       rescue NetworkError => e
-        say "Network error: #{e.message}", :red
+        say_error "Network error: #{e.message}", :red
         exit 3
       end
 
@@ -70,15 +73,20 @@ module Gamechanger
         end
 
         if team_slug.nil?
-          say '', :yellow
-          say 'Could not auto-detect team slug. Check your team URL on web.gc.com:', :yellow
-          say '  https://web.gc.com/teams/SLUG/...', :yellow
-          team_slug = ask('Enter your team slug (e.g. wGP47FexatoQ):').strip
-          team_slug = nil if team_slug.empty?
+          cli_slug = options[:'team-slug'] || ENV['GAMECHANGER_TEAM_SLUG']
+          if cli_slug
+            team_slug = cli_slug
+          else
+            say '', :yellow
+            say 'Could not auto-detect team slug. Check your team URL on web.gc.com:', :yellow
+            say '  https://web.gc.com/teams/SLUG/...', :yellow
+            team_slug = ask('Enter your team slug (e.g. wGP47FexatoQ):').strip
+            team_slug = nil if team_slug.empty?
+          end
         end
       rescue APIShapeError => e
-        say "Could not auto-detect team: #{e.message}", :yellow
-        say "You can manually add team_id and team_slug to ~/.gamechanger/config.yml", :yellow
+        say_error "Could not auto-detect team: #{e.message}", :yellow
+        say_error "You can manually add team_id and team_slug to ~/.gamechanger/config.yml", :yellow
       end
 
       cfg.save(email: email, password: password, team_id: team_id, team_slug: team_slug)
@@ -112,21 +120,21 @@ module Gamechanger
         show_season(storage, formatter)
       end
     rescue AuthError => e
-      say "Authentication error: #{e.message}", :red
+      say_error "Authentication error: #{e.message}", :red
       exit 2
     rescue NetworkError => e
-      say "Network error: #{e.message}", :red
+      say_error "Network error: #{e.message}", :red
       exit 3
     rescue ConfigError => e
-      say "Configuration error: #{e.message}", :red
+      say_error "Configuration error: #{e.message}", :red
       exit 4
     rescue APIShapeError => e
-      say "Gamechanger API returned an unexpected format: #{e.message}", :red
-      say "The API may have changed. Check docs/research/gc-api-notes.md", :yellow
+      say_error "Gamechanger API returned an unexpected format: #{e.message}", :red
+      say_error "The API may have changed. Check docs/research/gc-api-notes.md", :yellow
       exit 3
     rescue StorageError => e
-      say "Cache read failed — #{e.message}", :red
-      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      say_error "Cache read failed — #{e.message}", :red
+      say_error "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
       exit 1
     ensure
       storage&.close
@@ -135,6 +143,7 @@ module Gamechanger
     # ─── refresh ──────────────────────────────────────────────────────────────
 
     desc 'refresh', 'Sync latest game data from Gamechanger'
+    option :format, type: :string, default: 'human', desc: 'Output format (human, json)'
     def refresh
       config  = load_config!
       storage = Storage.new(season: config.season)
@@ -143,22 +152,26 @@ module Gamechanger
       games   = result.games
       outings = result.outings
       at_bats = result.at_bats
-      say "#{games} game#{'s' unless games == 1}, #{outings} outing#{'s' unless outings == 1}, #{at_bats} at-bat#{'s' unless at_bats == 1} updated.", :green
+      if options[:format] == 'json'
+        puts JSON.generate({ games: games, outings: outings, at_bats: at_bats })
+      else
+        say "#{games} game#{'s' unless games == 1}, #{outings} outing#{'s' unless outings == 1}, #{at_bats} at-bat#{'s' unless at_bats == 1} updated.", :green
+      end
     rescue AuthError => e
-      say "Authentication error: #{e.message}", :red
+      say_error "Authentication error: #{e.message}", :red
       exit 2
     rescue NetworkError => e
-      say "Network error: #{e.message}", :red
+      say_error "Network error: #{e.message}", :red
       exit 3
     rescue ConfigError => e
-      say "Configuration error: #{e.message}", :red
+      say_error "Configuration error: #{e.message}", :red
       exit 4
     rescue APIShapeError => e
-      say "Gamechanger API returned an unexpected format: #{e.message}", :red
-      say "The API may have changed. Check docs/research/gc-api-notes.md", :yellow
+      say_error "Gamechanger API returned an unexpected format: #{e.message}", :red
+      say_error "The API may have changed. Check docs/research/gc-api-notes.md", :yellow
       exit 3
     rescue StorageError => e
-      say "Cache read failed — #{e.message}", :red
+      say_error "Cache read failed — #{e.message}", :red
       exit 1
     ensure
       storage&.close
@@ -176,8 +189,8 @@ module Gamechanger
       formatter = build_formatter
       show_availability(target_date, game_info, rows, rules, formatter)
     rescue StorageError => e
-      say "Cache read failed — #{e.message}", :red
-      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      say_error "Cache read failed — #{e.message}", :red
+      say_error "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
       exit 1
     ensure
       storage&.close
@@ -217,8 +230,8 @@ module Gamechanger
       formatter = build_formatter
       puts formatter.plan(planner.assignments, planner.projections, next_date, rules)
     rescue StorageError => e
-      say "Cache read failed — #{e.message}", :red
-      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      say_error "Cache read failed — #{e.message}", :red
+      say_error "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
       exit 1
     ensure
       storage&.close
@@ -238,8 +251,8 @@ module Gamechanger
         show_hitting(storage, formatter)
       end
     rescue StorageError => e
-      say "Cache read failed — #{e.message}", :red
-      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      say_error "Cache read failed — #{e.message}", :red
+      say_error "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
       exit 1
     ensure
       storage&.close
@@ -257,8 +270,8 @@ module Gamechanger
       formatter = build_formatter
       puts formatter.lineup(target_date, game_info, optimizer)
     rescue StorageError => e
-      say "Cache read failed — #{e.message}", :red
-      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      say_error "Cache read failed — #{e.message}", :red
+      say_error "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
       exit 1
     ensure
       storage&.close
@@ -272,8 +285,8 @@ module Gamechanger
       formatter = build_formatter
       show_equity(storage, formatter)
     rescue StorageError => e
-      say "Cache read failed — #{e.message}", :red
-      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      say_error "Cache read failed — #{e.message}", :red
+      say_error "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
       exit 1
     ensure
       storage&.close
@@ -295,8 +308,8 @@ module Gamechanger
         show_progress(storage, formatter)
       end
     rescue StorageError => e
-      say "Cache read failed — #{e.message}", :red
-      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      say_error "Cache read failed — #{e.message}", :red
+      say_error "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
       exit 1
     ensure
       storage&.close
@@ -327,8 +340,8 @@ module Gamechanger
       formatter = build_formatter
       puts formatter.brief(target_date, game_info, brief_obj)
     rescue StorageError => e
-      say "Cache read failed — #{e.message}", :red
-      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      say_error "Cache read failed — #{e.message}", :red
+      say_error "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
       exit 1
     ensure
       storage&.close
@@ -358,7 +371,7 @@ module Gamechanger
     def load_config!
       config = Config.new
       unless config.configured?
-        say 'Not configured. Run `gamechanger setup` first.', :red
+        say_error 'Not configured. Run `gamechanger setup` first.', :red
         exit 4
       end
       config

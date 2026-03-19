@@ -1,5 +1,21 @@
 # frozen_string_literal: true
 
+require 'bootsnap'
+Bootsnap.setup(
+  cache_dir: "#{__dir__}/../tmp/bootsnap",
+  load_path_cache: true,
+  compile_cache_iseq: true,
+  compile_cache_yaml: true
+)
+
+if ENV['COVERAGE']
+  require 'simplecov'
+  SimpleCov.start do
+    add_filter '/spec/'
+    enable_coverage :branch
+  end
+end
+
 require 'webmock/rspec'
 require 'gamechanger'
 

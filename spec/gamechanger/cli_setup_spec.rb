@@ -82,7 +82,7 @@ RSpec.describe Gamechanger::CLI, '#setup' do
           described_class.start(['setup'])
         rescue SystemExit
         end
-      end.to output(/Authentication failed/).to_stdout
+      end.to output(/Authentication failed/).to_stderr
     end
   end
 

@@ -1,0 +1,4 @@
+coverage/
+.gstack/
+tmp/bootsnap/
+.claude/settings.local.json

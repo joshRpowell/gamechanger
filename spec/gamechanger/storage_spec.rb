@@ -597,4 +597,55 @@ RSpec.describe Gamechanger::Storage do
       expect(ids).to contain_exactly('g1')
     end
   end
+
+  describe '#stale_games' do
+    it 'returns in_progress games' do
+      storage.upsert_game(game_id: 'g1', game_date: '2026-03-01', opponent: 'A', home_away: 'home', status: 'in_progress')
+      storage.upsert_game(game_id: 'g2', game_date: '2026-03-08', opponent: 'B', home_away: 'away', status: 'final')
+      ids = storage.stale_games.map { |g| g['game_id'] }
+      expect(ids).to include('g1')
+      expect(ids).not_to include('g2')
+    end
+
+    it 'returns today\'s games regardless of status' do
+      today = Date.today.iso8601
+      storage.upsert_game(game_id: 'today', game_date: today, opponent: 'C', home_away: 'home', status: 'scheduled')
+      ids = storage.stale_games.map { |g| g['game_id'] }
+      expect(ids).to include('today')
+    end
+  end
+
+  describe 'with a real filesystem data_dir' do
+    around do |example|
+      Dir.mktmpdir do |tmpdir|
+        @tmpdir = tmpdir
+        example.run
+      end
+    end
+
+    it 'creates and uses a db file in the given directory' do
+      fs_storage = described_class.new(data_dir: @tmpdir)
+      fs_storage.upsert_game(game_id: 'fs-g1', game_date: '2026-03-01', opponent: 'X', home_away: 'home', status: 'final')
+      expect(fs_storage.all_games.map { |g| g['game_id'] }).to include('fs-g1')
+      fs_storage.close
+    end
+
+    it 'creates the db file with restricted permissions' do
+      fs_storage = described_class.new(data_dir: @tmpdir)
+      fs_storage.all_games  # trigger connection open
+      db_path = File.join(@tmpdir, Gamechanger::Storage::DB_FILE)
+      expect(File.exist?(db_path)).to be true
+      perms = File.stat(db_path).mode & 0o777
+      expect(perms).to eq(0o600)
+      fs_storage.close
+    end
+  end
+
+  describe 'SQLite3 exception handling' do
+    it 'raises StorageError when SQLite3 raises an exception' do
+      allow(SQLite3::Database).to receive(:new).and_raise(SQLite3::Exception, 'disk I/O error')
+      expect { described_class.new(data_dir: ':memory:').all_games }
+        .to raise_error(Gamechanger::StorageError, /disk I\/O error/)
+    end
+  end
 end
