@@ -292,6 +292,27 @@ RSpec.describe Gamechanger::Formatters::Table do
       output = fmt.hitting(rows)
       expect(output).to include('.000')
     end
+
+    it 'renders trending up arrow (↗) in table' do
+      rows = [{
+        'batter_name' => 'Hot', 'games' => 5,
+        'total_ab' => 20, 'total_hits' => 4, 'total_walks' => 0, 'total_k' => 2,
+        'seven_day_ab' => 4, 'seven_day_hits' => 3, 'seven_day_walks' => 0
+      }]
+      output = fmt.hitting(rows)
+      expect(output).to include('↗')
+    end
+
+    it 'renders flat trend arrow (→) in table when 7-day close to season' do
+      # season_obp = 4/8 = 0.5, s7_obp = 2/4 = 0.5, diff = 0.0 → →
+      rows = [{
+        'batter_name' => 'Steady', 'games' => 5,
+        'total_ab' => 8, 'total_hits' => 4, 'total_walks' => 0, 'total_k' => 1,
+        'seven_day_ab' => 4, 'seven_day_hits' => 2, 'seven_day_walks' => 0
+      }]
+      output = fmt.hitting(rows)
+      expect(output).to include('→')
+    end
   end
 
   # ── batter_games ──────────────────────────────────────────────────────────
@@ -504,6 +525,26 @@ RSpec.describe Gamechanger::Formatters::Table do
     it 'renders unranked batters in brief' do
       output = fmt.brief(today, nil, brief_obj)
       expect(output).to include('Carlos')
+    end
+
+    it 'renders spotlight with empty detail when no OBP and no narrative' do
+      arc_empty = Gamechanger::PlayerArc.new(
+        player_name: 'Blank', bat_trend: '↑', bat_narrative: nil,
+        first_half_obp: nil, recent_obp: nil, second_half_obp: nil,
+        bat_sparkline: [], pitch_sparkline: [],
+        pitch_trend: '→', pitch_narrative: nil,
+        first_half_strike_pct: nil, second_half_strike_pct: nil,
+        recent_strike_pct: nil,
+        total_games_batted: 2, total_games_pitched: 0
+      )
+      empty_brief = instance_double(
+        Gamechanger::PreGameBrief,
+        pitcher_plan: [],
+        lineup: instance_double(Gamechanger::LineupOptimizer, ranked: [], unranked: []),
+        equity_flags: [], development_spotlights: [arc_empty]
+      )
+      output = fmt.brief(today, nil, empty_brief)
+      expect(output).to include('Blank')
     end
   end
 
