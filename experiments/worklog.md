@@ -20,7 +20,21 @@
 - json.rb is purely transformational — minimal branching, easy to test
 - table.rb and markdown.rb have more branching (empty checks, conditional formatting)
 
+### Run 6: 100% Line Coverage Achieved — line_coverage=100.0% (KEEP)
+- Timestamp: 2026-03-19 09:54
+- What changed: Added config_spec.rb (new), extended client_spec.rb, storage_spec.rb, syncer_spec.rb, development_arc_spec.rb, cli_spec.rb with tests for all 41 remaining uncovered lines
+- Result: 100.0% line, 85.87% branch, 493 examples, 0 failures. +9.16% from Run 5.
+- Insight: Key patterns — stub `Config.new` for plan tests needing season; empty boxscore stub for syncer normalize_status; `instance_double` with `configure?` for pitches; `Dir.mktmpdir` for filesystem storage tests; `OpenSSL::SSL::SSLError.new` raisable via WebMock; two consecutive 429 stubs hit the second-attempt NetworkError path.
+- Next: PRIMARY GOAL MET. Could target 100% branch coverage next (currently 85.87%).
+
+## Key Insights
+- All three formatters (json, table, markdown) have the same structural methods — season_summary, pitcher_games, availability, lineup, brief, hitting, batter_games, equity, progress, progress_player, plan, game_breakdown
+- Tests need real struct/double instances of LineupOptimizer::PlayerSlot, DevelopmentArc, TournamentPlanner, PreGameBrief
+- json.rb is purely transformational — minimal branching, easy to test
+- table.rb and markdown.rb have more branching (empty checks, conditional formatting)
+- CLI tests using seeded storage context fail if `Storage.new` is stubbed in same describe block — use explicit mocks instead
+- `resolve_next_game_date` tests require `Config.new` to be stubbed too (plan calls `current_season` which calls `Config.new`)
+- Empty boxscore (groups: []) ensures stats.any? is false and game status isn't overwritten to 'final' in syncer
+
 ## Next Ideas
-- json_spec.rb: all 11 methods (season_summary, pitcher_games, game_breakdown, plan, brief, hitting, batter_games, lineup, equity, progress, progress_player, availability)
-- table_spec.rb: all methods + empty state tests
-- markdown coverage: pitcher_games, game_breakdown, plan, batter_games, progress, progress_player
+- Branch coverage improvement: 85.87% → 100% (57 uncovered branches remaining)

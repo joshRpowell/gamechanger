@@ -4,3 +4,4 @@
 {"run":3,"commit":"3513ec9","metric":78.92,"metrics":{"branch_coverage":62.72,"test_failures":0},"status":"keep","description":"table_spec.rb — all formatter methods + edge cases","timestamp":1773926204,"segment":0}
 {"run":4,"commit":"c1968ed","metric":79.1,"metrics":{"branch_coverage":63.12,"test_failures":0},"status":"keep","description":"table.rb at 100% — trend arrows and nil narrative paths","timestamp":1773926368,"segment":0}
 {"run":5,"commit":"d791a1b","metric":90.84,"metrics":{"branch_coverage":76.45,"test_failures":0},"status":"keep","description":"markdown_spec.rb — all methods + branches covered","timestamp":1773926593,"segment":0}
+{"run":6,"commit":"ca1f4fb","metric":100.0,"metrics":{"branch_coverage":85.87,"test_failures":0},"status":"keep","description":"100% line coverage — config, client, storage, syncer, development_arc, cli edge cases","timestamp":1773939064,"segment":0}
