@@ -5,6 +5,8 @@ require 'terminal-table'
 module Gamechanger
   module Formatters
     class Table
+      TABLE_STYLE = { border_x: '─', border_i: '┼', border_y: '│' }.freeze
+
       def season_summary(rows)
         return "No pitch data found for this season." if rows.empty?
 
@@ -28,7 +30,7 @@ module Gamechanger
             ]
           end
         )
-        t.style = { border_x: '─', border_i: '┼', border_y: '│' }
+        t.style = TABLE_STYLE
         t.to_s
       end
 
@@ -57,7 +59,7 @@ module Gamechanger
             ]
           end
         )
-        t.style = { border_x: '─', border_i: '┼', border_y: '│' }
+        t.style = TABLE_STYLE
         t.to_s
       end
 
@@ -134,7 +136,7 @@ module Gamechanger
             ]
           end
         )
-        t.style = { border_x: '─', border_i: '┼', border_y: '│' }
+        t.style = TABLE_STYLE
         lines << t.to_s
 
         if next_game_date && projections.any?
@@ -177,7 +179,7 @@ module Gamechanger
             [r['batter_name'], r['games'], ab, hits, walks, k, avg, obp, trend_arrow(r)]
           end
         )
-        t.style = { border_x: '─', border_i: '┼', border_y: '│' }
+        t.style = TABLE_STYLE
         t.to_s
       end
 
@@ -197,7 +199,7 @@ module Gamechanger
             [r['game_date'], r['opponent'] || '—', r['home_away'] || '—', ab, hits, walks, k, avg, obp]
           end
         )
-        t.style = { border_x: '─', border_i: '┼', border_y: '│' }
+        t.style = TABLE_STYLE
         t.to_s
       end
 
@@ -229,7 +231,7 @@ module Gamechanger
               ]
             end
           )
-          t.style = { border_x: '─', border_i: '┼', border_y: '│' }
+          t.style = TABLE_STYLE
           lines << t.to_s
         end
 
@@ -275,7 +277,7 @@ module Gamechanger
               [r['pitcher_name'], seven_day, r['remaining'] > 0 ? r['remaining'].to_s : '—', status]
             end
           )
-          t.style = { border_x: '─', border_i: '┼', border_y: '│' }
+          t.style = TABLE_STYLE
           lines << t.to_s
           lines << ""
         end
@@ -297,7 +299,7 @@ module Gamechanger
                 ]
               end
             )
-            t.style = { border_x: '─', border_i: '┼', border_y: '│' }
+            t.style = TABLE_STYLE
             lines << t.to_s
           end
           unless optimizer.unranked.empty?
@@ -368,7 +370,7 @@ module Gamechanger
                 ]
               end
             )
-            t.style = { border_x: '─', border_i: '┼', border_y: '│' }
+            t.style = TABLE_STYLE
             output << t.to_s
           end
           output << ''
@@ -392,7 +394,7 @@ module Gamechanger
             [r['player_name'], bat_date, bat_ago, bat_rate, pit_date, pit_ago]
           end
         )
-        t.style = { border_x: '─', border_i: '┼', border_y: '│' }
+        t.style = TABLE_STYLE
         t.to_s
       end
 
@@ -411,7 +413,7 @@ module Gamechanger
             ]
           end
         )
-        t.style = { border_x: '─', border_i: '┼', border_y: '│' }
+        t.style = TABLE_STYLE
         t.to_s
       end
 

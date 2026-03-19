@@ -552,6 +552,8 @@ module Gamechanger
 
     def db
       @conn ||= open_connection(db_path).tap { |conn| migrate!(conn) }
+    rescue SQLite3::Exception => e
+      raise StorageError, e.message
     end
 
     def open_connection(path)

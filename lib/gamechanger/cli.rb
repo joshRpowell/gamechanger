@@ -94,9 +94,11 @@ module Gamechanger
     option :refresh, type: :boolean, default: false,
                      desc: 'Force re-fetch of non-final games from Gamechanger'
     def pitches
-      config = load_config!
+      config  = load_config!
       storage = Storage.new
-      sync_data(config, storage, force: options[:refresh])
+      say 'Syncing games from Gamechanger...', :cyan if $stdout.tty?
+      Syncer.new(config, storage).run(force: options[:refresh])
+      say 'Done.', :green if $stdout.tty?
 
       formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
 
@@ -120,6 +122,12 @@ module Gamechanger
       say "Gamechanger API returned an unexpected format: #{e.message}", :red
       say "The API may have changed. Check docs/research/gc-api-notes.md", :yellow
       exit 3
+    rescue StorageError => e
+      say "Cache read failed — #{e.message}", :red
+      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      exit 1
+    ensure
+      storage&.close
     end
 
     # ─── availability ─────────────────────────────────────────────────────────
@@ -127,12 +135,18 @@ module Gamechanger
     desc 'availability', 'Show pitcher availability for the next game'
     option :date, type: :string, desc: 'Target game date (YYYY-MM-DD, default: next scheduled game)'
     def availability
-      target_date, game_info = resolve_target(options[:date])
-      storage   = Storage.new
+      storage = Storage.new
+      target_date, game_info = resolve_target(options[:date], storage: storage)
       rules     = PitchRules.new
       rows      = storage.pitcher_availability_data(before_date: target_date)
       formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
       show_availability(target_date, game_info, rows, rules, formatter)
+    rescue StorageError => e
+      say "Cache read failed — #{e.message}", :red
+      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      exit 1
+    ensure
+      storage&.close
     end
 
     # ─── plan ─────────────────────────────────────────────────────────────────
@@ -145,10 +159,10 @@ module Gamechanger
     option :skip,      type: :string, desc: 'Comma-separated pitcher names to exclude'
     option :next_game, type: :string, desc: 'Next regular-season date for post-tournament projection (YYYY-MM-DD)'
     def plan
-      game_slots   = resolve_plan_games
-      first_date   = game_slots.first && (game_slots.first['game_date'] || game_slots.first[:game_date])
-      storage      = Storage.new
-      rows         = storage.pitcher_availability_data(before_date: first_date)
+      storage    = Storage.new
+      game_slots = resolve_plan_games(storage: storage)
+      first_date = game_slots.first && (game_slots.first['game_date'] || game_slots.first[:game_date])
+      rows       = storage.pitcher_availability_data(before_date: first_date)
 
       if rows.empty?
         say 'No pitcher data in cache. Run `gamechanger pitches --refresh` first.', :yellow
@@ -168,6 +182,12 @@ module Gamechanger
       next_date = resolve_next_game_date(storage)
       formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
       puts formatter.plan(planner.assignments, planner.projections, next_date, rules)
+    rescue StorageError => e
+      say "Cache read failed — #{e.message}", :red
+      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      exit 1
+    ensure
+      storage&.close
     end
 
     # ─── hitting ──────────────────────────────────────────────────────────────
@@ -183,6 +203,12 @@ module Gamechanger
       else
         show_hitting(storage, formatter)
       end
+    rescue StorageError => e
+      say "Cache read failed — #{e.message}", :red
+      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      exit 1
+    ensure
+      storage&.close
     end
 
     # ─── lineup ───────────────────────────────────────────────────────────────
@@ -190,12 +216,18 @@ module Gamechanger
     desc 'lineup', 'Suggest batting order for the next game based on recent OBP'
     option :date, type: :string, desc: 'Target game date (YYYY-MM-DD, default: next scheduled game)'
     def lineup
-      target_date, game_info = resolve_target(options[:date])
-      storage   = Storage.new
+      storage = Storage.new
+      target_date, game_info = resolve_target(options[:date], storage: storage)
       rows      = storage.batter_lineup_data(before_date: target_date)
       optimizer = LineupOptimizer.new(rows)
       formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
       puts formatter.lineup(target_date, game_info, optimizer)
+    rescue StorageError => e
+      say "Cache read failed — #{e.message}", :red
+      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      exit 1
+    ensure
+      storage&.close
     end
 
     # ─── equity ───────────────────────────────────────────────────────────────
@@ -205,6 +237,12 @@ module Gamechanger
       storage   = Storage.new
       formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
       show_equity(storage, formatter)
+    rescue StorageError => e
+      say "Cache read failed — #{e.message}", :red
+      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      exit 1
+    ensure
+      storage&.close
     end
 
     # ─── progress ─────────────────────────────────────────────────────────────
@@ -222,6 +260,12 @@ module Gamechanger
       else
         show_progress(storage, formatter)
       end
+    rescue StorageError => e
+      say "Cache read failed — #{e.message}", :red
+      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      exit 1
+    ensure
+      storage&.close
     end
 
     # ─── brief ────────────────────────────────────────────────────────────────
@@ -229,8 +273,8 @@ module Gamechanger
     desc 'brief', 'Pre-game intelligence brief (pitcher plan, lineup, equity, development)'
     option :date, type: :string, desc: 'Target game date YYYY-MM-DD (default: next scheduled game)'
     def brief
-      target_date, game_info = resolve_target(options[:date])
       storage = Storage.new
+      target_date, game_info = resolve_target(options[:date], storage: storage)
 
       availability_rows = storage.pitcher_availability_data(before_date: target_date)
       lineup_rows       = storage.batter_lineup_data(before_date: target_date)
@@ -248,6 +292,12 @@ module Gamechanger
 
       formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
       puts formatter.brief(target_date, game_info, brief_obj)
+    rescue StorageError => e
+      say "Cache read failed — #{e.message}", :red
+      say "Try deleting ~/.gamechanger/cache.db and re-running `gamechanger pitches --refresh`", :yellow
+      exit 1
+    ensure
+      storage&.close
     end
 
     # ─── version ──────────────────────────────────────────────────────────────
@@ -266,58 +316,6 @@ module Gamechanger
         exit 4
       end
       config
-    end
-
-    def sync_data(config, storage, force: false)
-      storage.clear_non_final if force
-
-      client     = Client.new(config: config)
-      team_id    = config.team_id
-      team_slug  = config.team_slug
-
-      if team_id.nil? || team_id.empty?
-        say 'No team_id configured. Run `gamechanger setup` again.', :yellow
-        say 'Or manually add team_id to ~/.gamechanger/config.yml', :yellow
-        exit 4
-      end
-
-      if team_slug.nil? || team_slug.empty?
-        say 'No team_slug configured. Run `gamechanger setup` again.', :yellow
-        say 'Or add team_slug to ~/.gamechanger/config.yml (the short ID from your team URL).', :yellow
-        exit 4
-      end
-
-      say 'Syncing games from Gamechanger...', :cyan if $stdout.tty?
-
-      raw_games  = client.games(team_id: team_id)
-      games_list = extract_games(raw_games)
-
-      today = Date.today.to_s
-
-      games_list.each do |game|
-        parsed = parse_game(game)
-        next if parsed[:status] == 'canceled'
-        next if parsed[:game_date].nil? || parsed[:game_date] > today  # skip future games
-
-        storage.upsert_game(parsed)
-
-        # Skip final games already cached (save API calls)
-        cached = storage.all_games.find { |g| g['game_id'] == parsed[:game_id] }
-        next if cached && cached['status'] == 'final' && !force
-
-        sleep Client::RATE_LIMIT_SLEEP
-        raw_boxscore = client.game_pitcher_stats(game_id: parsed[:game_id])
-        stats = BoxscoreParser.new(raw_boxscore, team_slug: team_slug).pitcher_stats
-        storage.upsert_pitcher_stats(game_id: parsed[:game_id], stats: stats)
-
-        batter_stats = BatterStatsParser.new(raw_boxscore, team_slug: team_slug).batter_stats
-        storage.upsert_batter_stats(game_id: parsed[:game_id], stats: batter_stats) if batter_stats.any?
-
-        # Mark as final if boxscore has data (schedule always shows "scheduled")
-        storage.upsert_game(parsed.merge(status: 'final')) if stats.any?
-      end
-
-      say 'Done.', :green if $stdout.tty?
     end
 
     def show_season(storage, formatter)
@@ -370,41 +368,7 @@ module Gamechanger
       puts formatter.game_breakdown(games)
     end
 
-    # Confirmed from /teams/{uuid}/schedule?fetch_place_details=true response.
-    # Returns a bare array of {event:, pregame_data:} objects (practices and games mixed).
-    # Filters to event_type=="game" only.
-    def extract_games(response)
-      list = if response.is_a?(Array)
-               response
-             elsif response.is_a?(Hash)
-               response['schedule'] || response['events'] || response['data'] || []
-             else
-               raise APIShapeError, "Unexpected schedule response shape: #{response.class}"
-             end
-
-      list.select { |item| item.dig('event', 'event_type') == 'game' }
-    end
-
-    # Confirmed field names from /teams/{uuid}/schedule response.
-    # Each item is {event: {...}, pregame_data: {...}}.
-    def parse_game(raw)
-      event   = raw['event']
-      pregame = raw['pregame_data']
-
-      # start.datetime is ISO 8601 — extract date; full_day events use start.date
-      game_date = event.dig('start', 'datetime')&.split('T')&.first ||
-                  event.dig('start', 'date')
-
-      {
-        game_id:   event['id'],
-        game_date: game_date,
-        opponent:  pregame&.dig('opponent_name') || event['title'],
-        home_away: pregame&.dig('home_away'),
-        status:    normalize_status(event['status'])
-      }
-    end
-
-    def resolve_target(date_opt)
+    def resolve_target(date_opt, storage: nil)
       if date_opt
         begin
           [Date.parse(date_opt), nil]
@@ -413,8 +377,7 @@ module Gamechanger
           exit 1
         end
       else
-        storage = Storage.new
-        game    = storage.next_scheduled_game
+        game = storage.next_scheduled_game
         if game.nil?
           say "No upcoming games in cache. Run `gamechanger pitches --refresh` to sync the schedule.", :yellow
           exit 1
@@ -425,7 +388,7 @@ module Gamechanger
 
     # Resolve the list of game slots for the `plan` command.
     # --games takes precedence over --from/--to; falls back to next scheduled game.
-    def resolve_plan_games
+    def resolve_plan_games(storage: nil)
       if options[:games]
         dates = options[:games].split(',').map(&:strip)
         dates.map do |d|
@@ -456,8 +419,7 @@ module Gamechanger
           from_date
         end
 
-        storage = Storage.new
-        games   = storage.scheduled_games_between(from_date: from_date, to_date: to_date)
+        games = storage.scheduled_games_between(from_date: from_date, to_date: to_date)
         if games.empty?
           say "No scheduled games found between #{from_date} and #{to_date}. Run `gamechanger pitches --refresh` to sync the schedule.", :yellow
           exit 1
@@ -465,8 +427,7 @@ module Gamechanger
         games
       else
         # Default: use next scheduled game only
-        storage = Storage.new
-        game    = storage.next_scheduled_game
+        game = storage.next_scheduled_game
         if game.nil?
           say "No upcoming games in cache. Run `gamechanger pitches --refresh` to sync the schedule.", :yellow
           exit 1
@@ -552,15 +513,6 @@ module Gamechanger
 
     def show_availability(target_date, game_info, rows, rules, formatter)
       puts formatter.availability(target_date, game_info, rows, rules)
-    end
-
-    def normalize_status(raw_status)
-      case raw_status.to_s.downcase
-      when /completed|final|ended/ then 'final'
-      when /progress|live|active/  then 'in_progress'
-      when /scheduled|upcoming/    then 'scheduled'
-      else raw_status.to_s.downcase
-      end
     end
   end
 end

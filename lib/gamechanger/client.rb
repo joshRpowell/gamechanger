@@ -17,7 +17,6 @@ module Gamechanger
     TEAMS_PATH       = '/me/teams'.freeze                                 # confirmed
     GAMES_PATH       = '/teams/%s/schedule'.freeze                        # confirmed — %s = team UUID
     GAME_STATS_PATH  = '/game-stream-processing/%s/boxscore'.freeze      # confirmed — %s = game UUID
-    GAME_DETAIL_PATH = '/public/game-stream-processing/%s/details'.freeze # confirmed — %s = game UUID, public (no auth needed)
 
     # Versioned Accept headers per endpoint (GC uses content negotiation)
     ACCEPT_TEAMS = 'application/vnd.gc.com.team:list+json; version=0.10.0'.freeze
@@ -76,13 +75,6 @@ module Gamechanger
     def game_pitcher_stats(game_id:)
       authenticate
       get(GAME_STATS_PATH % game_id)
-    end
-
-    # Return details for a single game (public endpoint — no auth required).
-    # @param game_id [String] Gamechanger game UUID
-    # @return [Hash] game details with id, game_status, start_ts, home_away, opponent_team
-    def game_detail(game_id:)
-      get("#{GAME_DETAIL_PATH % game_id}?include=line_scores")
     end
 
     private

@@ -37,7 +37,6 @@ If setup can't auto-detect your team ID, edit `~/.gamechanger/config.yml` direct
 email: your@email.com
 password: your_password
 team_id: "12345"    # find this in the URL when viewing your team on web.gc.com
-season: 2026        # optional, defaults to current year
 ```
 
 ## Usage
@@ -112,6 +111,8 @@ bundle exec gamechanger pitches --game 2026-03-14 --format json
 - Config: `~/.gamechanger/config.yml` (mode 0600)
 - Session token: `~/.gamechanger/session` (mode 0600)
 - Cache: `~/.gamechanger/cache.db` (SQLite, mode 0600)
+
+**Security note:** Password is stored in plaintext in `config.yml` (mode 0600 — readable only by you). This is the same security model used by the AWS CLI and Heroku CLI.
 
 Final games are cached permanently. In-progress and today's games are re-fetched on every invocation.
 

@@ -11,14 +11,16 @@ require_relative 'gamechanger/tournament_planner'
 require_relative 'gamechanger/lineup_optimizer'
 require_relative 'gamechanger/development_arc'
 require_relative 'gamechanger/pre_game_brief'
+require_relative 'gamechanger/syncer'
 require_relative 'gamechanger/formatters/table'
 require_relative 'gamechanger/formatters/json'
 require_relative 'gamechanger/cli'
 
 module Gamechanger
-  class Error        < StandardError; end
-  class AuthError    < Error; end
-  class NetworkError < Error; end
-  class ConfigError  < Error; end
+  class Error         < StandardError; end
+  class AuthError     < Error; end
+  class NetworkError  < Error; end
+  class ConfigError   < Error; end
   class APIShapeError < Error; end
+  class StorageError  < Error; end
 end
