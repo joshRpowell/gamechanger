@@ -1,5 +1,15 @@
 # frozen_string_literal: true
 
+require 'bootsnap'
+Bootsnap.setup(
+  cache_dir: File.expand_path('../../tmp/bootsnap', __FILE__),
+  ignore_directories: ['node_modules'],
+  development_mode: true,
+  load_path_cache: true,
+  compile_cache_iseq: true,
+  compile_cache_yaml: true
+)
+
 if ENV['COVERAGE']
   require 'simplecov'
   SimpleCov.start do
