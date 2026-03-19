@@ -656,8 +656,7 @@ RSpec.describe Gamechanger::Formatters::Table do
           bat_trend: '↗', bat_sparkline: [], bat_narrative: 'Improving',
           first_half_strike_pct: 0.6, second_half_strike_pct: 0.65, recent_strike_pct: 0.7,
           total_games_pitched: 3,
-          pitch_trend: '↗', pitch_sparkline: [], pitch_narrative: 'Improving',
-          pitch_narrative: 'Good'
+          pitch_trend: '↗', pitch_sparkline: [], pitch_narrative: 'Improving'
         )
       ]
       output = fmt.progress(arcs)

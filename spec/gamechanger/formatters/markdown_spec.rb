@@ -48,7 +48,6 @@ RSpec.describe Gamechanger::Formatters::Markdown do
   end
 
   describe '#availability' do
-    let(:rules)  { Gamechanger::PitchRules.new }
     let(:target) { Date.today + 3 }
 
     it 'returns italic message when no rows' do

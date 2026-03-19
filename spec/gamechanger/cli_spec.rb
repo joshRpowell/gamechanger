@@ -259,7 +259,7 @@ RSpec.describe Gamechanger::CLI do
 
       it 'exits with code 2' do
         expect { described_class.start(['refresh']) }
-          .to output(/Authentication error/).to_stdout
+          .to output(/Authentication error/).to_stderr
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(2) }
       end
     end
@@ -282,6 +282,50 @@ RSpec.describe Gamechanger::CLI do
         allow(Gamechanger::Syncer).to receive(:new).and_return(syncer)
         described_class.start(['refresh'])
         expect(syncer).to have_received(:run).with(force: true)
+      end
+    end
+
+    context 'with --format json' do
+      include_context 'seeded storage'
+
+      it 'outputs JSON with games, outings, and at_bats keys' do
+        allow(Gamechanger::Syncer).to receive(:new).and_return(
+          instance_double(Gamechanger::Syncer,
+                          run: Gamechanger::SyncResult.new(2, 5, 30))
+        )
+        expect { described_class.start(['refresh', '--format', 'json']) }
+          .to output(/"games":2.*"outings":5.*"at_bats":30/m).to_stdout
+      end
+
+      it 'outputs valid JSON' do
+        allow(Gamechanger::Syncer).to receive(:new).and_return(
+          instance_double(Gamechanger::Syncer,
+                          run: Gamechanger::SyncResult.new(1, 3, 10))
+        )
+        expect { described_class.start(['refresh', '--format', 'json']) }
+          .to output(/\{.*\}/m).to_stdout
+      end
+
+      it 'does not output human text when --format json is used' do
+        allow(Gamechanger::Syncer).to receive(:new).and_return(
+          instance_double(Gamechanger::Syncer,
+                          run: Gamechanger::SyncResult.new(1, 3, 10))
+        )
+        expect { described_class.start(['refresh', '--format', 'json']) }
+          .not_to output(/\d+ game/).to_stdout
+      end
+    end
+
+    context 'with default format (human)' do
+      include_context 'seeded storage'
+
+      it 'outputs human-readable text by default' do
+        allow(Gamechanger::Syncer).to receive(:new).and_return(
+          instance_double(Gamechanger::Syncer,
+                          run: Gamechanger::SyncResult.new(1, 2, 10))
+        )
+        expect { described_class.start(['refresh']) }
+          .to output(/1 game,/).to_stdout
       end
     end
   end
@@ -379,7 +423,7 @@ RSpec.describe Gamechanger::CLI do
 
       it 'exits 2 with authentication failed message' do
         expect { described_class.start(['setup']) }
-          .to output(/Authentication failed/).to_stdout
+          .to output(/Authentication failed/).to_stderr
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(2) }
       end
     end
@@ -392,7 +436,7 @@ RSpec.describe Gamechanger::CLI do
 
       it 'exits 3 with network error message' do
         expect { described_class.start(['setup']) }
-          .to output(/Network error/).to_stdout
+          .to output(/Network error/).to_stderr
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(3) }
       end
     end
@@ -406,7 +450,7 @@ RSpec.describe Gamechanger::CLI do
 
       it 'warns and continues with nil team info' do
         expect { described_class.start(['setup']) }
-          .to output(/Could not auto-detect team/).to_stdout
+          .to output(/Could not auto-detect team/).to_stderr
       end
     end
 
@@ -495,6 +539,71 @@ RSpec.describe Gamechanger::CLI do
           .to output(/Could not auto-detect team slug/).to_stdout
       end
     end
+
+    context 'non-interactive mode via CLI flags' do
+      let(:client_double) do
+        instance_double(
+          Gamechanger::Client,
+          authenticate: 'token-abc',
+          teams: [{ 'id' => 'team-1', 'name' => 'Eagles', 'slug' => 'eagles' }]
+        )
+      end
+
+      before do
+        allow(Gamechanger::Client).to receive(:new).and_return(client_double)
+      end
+
+      it 'uses --email flag instead of interactive prompt' do
+        # ask should NOT be called for email when flag is provided
+        expect_any_instance_of(described_class).not_to receive(:ask).with('Email:')
+        expect { described_class.start(['setup', '--email', 'agent@ci.com', '--password', 'secret']) }
+          .to output(/Eagles/).to_stdout
+      end
+
+      it 'uses --password flag instead of interactive prompt' do
+        expect_any_instance_of(described_class).not_to receive(:ask).with('Password:', echo: false)
+        expect { described_class.start(['setup', '--email', 'agent@ci.com', '--password', 'secret']) }
+          .to output(/Configuration saved/).to_stdout
+      end
+
+      it 'uses --team-slug flag to skip slug prompt when team has no slug' do
+        allow(client_double).to receive(:teams)
+          .and_return([{ 'id' => 'team-1', 'name' => 'Eagles' }])
+        expect_any_instance_of(described_class).not_to receive(:ask).with(/slug/)
+        expect { described_class.start(['setup', '--email', 'a@b.com', '--password', 'pw', '--team-slug', 'my-slug']) }
+          .to output(/Configuration saved/).to_stdout
+      end
+    end
+
+    context 'non-interactive mode via environment variables' do
+      let(:client_double) do
+        instance_double(
+          Gamechanger::Client,
+          authenticate: 'token-abc',
+          teams: [{ 'id' => 'team-1', 'name' => 'Eagles', 'slug' => 'eagles' }]
+        )
+      end
+
+      before do
+        allow(Gamechanger::Client).to receive(:new).and_return(client_double)
+        stub_const('ENV', ENV.to_hash.merge(
+          'GAMECHANGER_EMAIL'    => 'env@ci.com',
+          'GAMECHANGER_PASSWORD' => 'envpass'
+        ))
+      end
+
+      it 'uses GAMECHANGER_EMAIL env var instead of interactive prompt' do
+        expect_any_instance_of(described_class).not_to receive(:ask).with('Email:')
+        expect { described_class.start(['setup']) }
+          .to output(/Eagles/).to_stdout
+      end
+
+      it 'uses GAMECHANGER_PASSWORD env var instead of interactive prompt' do
+        expect_any_instance_of(described_class).not_to receive(:ask).with('Password:', echo: false)
+        expect { described_class.start(['setup']) }
+          .to output(/Configuration saved/).to_stdout
+      end
+    end
   end
 
   # ─── pitches error paths ─────────────────────────────────────────────────
@@ -515,35 +624,35 @@ RSpec.describe Gamechanger::CLI do
     it 'exits 2 on AuthError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::AuthError, 'expired')
       expect { described_class.start(['pitches']) }
-        .to output(/Authentication error/).to_stdout
+        .to output(/Authentication error/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(2) }
     end
 
     it 'exits 3 on NetworkError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::NetworkError, 'timeout')
       expect { described_class.start(['pitches']) }
-        .to output(/Network error/).to_stdout
+        .to output(/Network error/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(3) }
     end
 
     it 'exits 4 on ConfigError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::ConfigError, 'bad config')
       expect { described_class.start(['pitches']) }
-        .to output(/Configuration error/).to_stdout
+        .to output(/Configuration error/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(4) }
     end
 
     it 'exits 3 on APIShapeError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::APIShapeError, 'changed')
       expect { described_class.start(['pitches']) }
-        .to output(/unexpected format/).to_stdout
+        .to output(/unexpected format/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(3) }
     end
 
     it 'exits 1 on StorageError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::StorageError, 'db error')
       expect { described_class.start(['pitches']) }
-        .to output(/Cache read failed/).to_stdout
+        .to output(/Cache read failed/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
     end
 
@@ -650,28 +759,28 @@ RSpec.describe Gamechanger::CLI do
     it 'exits 3 on NetworkError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::NetworkError, 'timeout')
       expect { described_class.start(['refresh']) }
-        .to output(/Network error/).to_stdout
+        .to output(/Network error/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(3) }
     end
 
     it 'exits 4 on ConfigError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::ConfigError, 'bad config')
       expect { described_class.start(['refresh']) }
-        .to output(/Configuration error/).to_stdout
+        .to output(/Configuration error/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(4) }
     end
 
     it 'exits 3 on APIShapeError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::APIShapeError, 'changed')
       expect { described_class.start(['refresh']) }
-        .to output(/unexpected format/).to_stdout
+        .to output(/unexpected format/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(3) }
     end
 
     it 'exits 1 on StorageError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::StorageError, 'db gone')
       expect { described_class.start(['refresh']) }
-        .to output(/Cache read failed/).to_stdout
+        .to output(/Cache read failed/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
     end
   end
@@ -697,44 +806,44 @@ RSpec.describe Gamechanger::CLI do
     it 'availability exits 1 on StorageError' do
       future = (Date.today + 3).to_s
       expect { described_class.start(['availability', '--date', future]) }
-        .to output(/Cache read failed/).to_stdout
+        .to output(/Cache read failed/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
     end
 
     it 'lineup exits 1 on StorageError' do
       future = (Date.today + 3).to_s
       expect { described_class.start(['lineup', '--date', future]) }
-        .to output(/Cache read failed/).to_stdout
+        .to output(/Cache read failed/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
     end
 
     it 'equity exits 1 on StorageError' do
       expect { described_class.start(['equity']) }
-        .to output(/Cache read failed/).to_stdout
+        .to output(/Cache read failed/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
     end
 
     it 'progress exits 1 on StorageError' do
       expect { described_class.start(['progress']) }
-        .to output(/Cache read failed/).to_stdout
+        .to output(/Cache read failed/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
     end
 
     it 'hitting exits 1 on StorageError' do
       expect { described_class.start(['hitting']) }
-        .to output(/Cache read failed/).to_stdout
+        .to output(/Cache read failed/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
     end
   end
 
-  describe '#availability StorageError (with plan rescue)' do
+  describe '#plan and #brief StorageError' do
     it 'plan exits 1 on StorageError' do
       plan_bad = instance_double(Gamechanger::Storage, close: nil).tap do |s|
         allow(s).to receive(:next_scheduled_game).and_raise(Gamechanger::StorageError, 'bad')
       end
       allow(Gamechanger::Storage).to receive(:new).and_return(plan_bad)
       expect { described_class.start(['plan']) }
-        .to output(/Cache read failed/).to_stdout
+        .to output(/Cache read failed/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
     end
 
@@ -744,7 +853,7 @@ RSpec.describe Gamechanger::CLI do
       end
       allow(Gamechanger::Storage).to receive(:new).and_return(brief_bad)
       expect { described_class.start(['brief']) }
-        .to output(/Cache read failed/).to_stdout
+        .to output(/Cache read failed/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
     end
   end

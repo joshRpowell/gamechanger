@@ -2,9 +2,7 @@
 
 require 'bootsnap'
 Bootsnap.setup(
-  cache_dir: File.expand_path('../../tmp/bootsnap', __FILE__),
-  ignore_directories: ['node_modules'],
-  development_mode: true,
+  cache_dir: "#{__dir__}/../tmp/bootsnap",
   load_path_cache: true,
   compile_cache_iseq: true,
   compile_cache_yaml: true
