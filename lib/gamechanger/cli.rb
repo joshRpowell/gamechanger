@@ -6,7 +6,9 @@ module Gamechanger
   class CLI < Thor
     def self.exit_on_failure? = true
 
-    class_option :format, type: :string, default: 'table', enum: %w[table json],
+    default_task :brief
+
+    class_option :format, type: :string, default: 'table', enum: %w[table json markdown],
                            desc: 'Output format'
 
     # ─── setup ────────────────────────────────────────────────────────────────
@@ -39,8 +41,8 @@ module Gamechanger
       team_id = nil
       begin
         teams_response = client.teams
-        # TODO: Update extraction logic after Phase 0 spike confirms response shape
-        # Common shapes: array of teams, or { teams: [...] }, or { data: [...] }
+        # Response shape is unconfirmed — see docs/research/gc-api-notes.md.
+        # Handles: bare array, { teams: [...] }, or { data: [...] }.
         teams_list = if teams_response.is_a?(Array)
                        teams_response
                      elsif teams_response.is_a?(Hash)
@@ -54,7 +56,7 @@ module Gamechanger
         elsif teams_list.length == 1
           team = teams_list.first
           team_id   = team['id']
-          team_slug = team['slug'] || team['short_id']  # TODO: confirm field name from teams response
+          team_slug = team['slug'] || team['short_id']  # field name unconfirmed — see gc-api-notes.md
           say "Team: #{team['name']} (#{team_id})", :green
         else
           say 'Multiple teams found:', :cyan
@@ -64,7 +66,7 @@ module Gamechanger
           idx = ask('Which team? (enter number):').to_i - 1
           selected  = teams_list[idx]
           team_id   = selected&.dig('id')
-          team_slug = selected&.dig('slug') || selected&.dig('short_id')
+          team_slug = selected&.dig('slug') || selected&.dig('short_id')  # field name unconfirmed
         end
 
         if team_slug.nil?
@@ -95,12 +97,12 @@ module Gamechanger
                      desc: 'Force re-fetch of non-final games from Gamechanger'
     def pitches
       config  = load_config!
-      storage = Storage.new
+      storage = Storage.new(season: config.season)
       say 'Syncing games from Gamechanger...', :cyan if $stdout.tty?
       Syncer.new(config, storage).run(force: options[:refresh])
       say 'Done.', :green if $stdout.tty?
 
-      formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
+      formatter = build_formatter
 
       if options[:game]
         show_game(options[:game], options[:game_number], storage, formatter)
@@ -130,16 +132,48 @@ module Gamechanger
       storage&.close
     end
 
+    # ─── refresh ──────────────────────────────────────────────────────────────
+
+    desc 'refresh', 'Sync latest game data from Gamechanger'
+    def refresh
+      config  = load_config!
+      storage = Storage.new(season: config.season)
+      say 'Syncing games from Gamechanger...', :cyan
+      result = Syncer.new(config, storage).run(force: true)
+      games   = result.games
+      outings = result.outings
+      at_bats = result.at_bats
+      say "#{games} game#{'s' unless games == 1}, #{outings} outing#{'s' unless outings == 1}, #{at_bats} at-bat#{'s' unless at_bats == 1} updated.", :green
+    rescue AuthError => e
+      say "Authentication error: #{e.message}", :red
+      exit 2
+    rescue NetworkError => e
+      say "Network error: #{e.message}", :red
+      exit 3
+    rescue ConfigError => e
+      say "Configuration error: #{e.message}", :red
+      exit 4
+    rescue APIShapeError => e
+      say "Gamechanger API returned an unexpected format: #{e.message}", :red
+      say "The API may have changed. Check docs/research/gc-api-notes.md", :yellow
+      exit 3
+    rescue StorageError => e
+      say "Cache read failed — #{e.message}", :red
+      exit 1
+    ensure
+      storage&.close
+    end
+
     # ─── availability ─────────────────────────────────────────────────────────
 
     desc 'availability', 'Show pitcher availability for the next game'
     option :date, type: :string, desc: 'Target game date (YYYY-MM-DD, default: next scheduled game)'
     def availability
-      storage = Storage.new
+      storage = Storage.new(season: current_season)
       target_date, game_info = resolve_target(options[:date], storage: storage)
       rules     = PitchRules.new
       rows      = storage.pitcher_availability_data(before_date: target_date)
-      formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
+      formatter = build_formatter
       show_availability(target_date, game_info, rows, rules, formatter)
     rescue StorageError => e
       say "Cache read failed — #{e.message}", :red
@@ -159,7 +193,7 @@ module Gamechanger
     option :skip,      type: :string, desc: 'Comma-separated pitcher names to exclude'
     option :next_game, type: :string, desc: 'Next regular-season date for post-tournament projection (YYYY-MM-DD)'
     def plan
-      storage    = Storage.new
+      storage    = Storage.new(season: current_season)
       game_slots = resolve_plan_games(storage: storage)
       first_date = game_slots.first && (game_slots.first['game_date'] || game_slots.first[:game_date])
       rows       = storage.pitcher_availability_data(before_date: first_date)
@@ -180,7 +214,7 @@ module Gamechanger
       )
 
       next_date = resolve_next_game_date(storage)
-      formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
+      formatter = build_formatter
       puts formatter.plan(planner.assignments, planner.projections, next_date, rules)
     rescue StorageError => e
       say "Cache read failed — #{e.message}", :red
@@ -195,8 +229,8 @@ module Gamechanger
     desc 'hitting', 'Show season batting stats'
     option :player, type: :string, desc: 'Single player game-by-game breakdown (substring match)'
     def hitting
-      storage   = Storage.new
-      formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
+      storage   = Storage.new(season: current_season)
+      formatter = build_formatter
 
       if options[:player]
         show_batter(options[:player], storage, formatter)
@@ -216,11 +250,11 @@ module Gamechanger
     desc 'lineup', 'Suggest batting order for the next game based on recent OBP'
     option :date, type: :string, desc: 'Target game date (YYYY-MM-DD, default: next scheduled game)'
     def lineup
-      storage = Storage.new
+      storage = Storage.new(season: current_season)
       target_date, game_info = resolve_target(options[:date], storage: storage)
       rows      = storage.batter_lineup_data(before_date: target_date)
       optimizer = LineupOptimizer.new(rows)
-      formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
+      formatter = build_formatter
       puts formatter.lineup(target_date, game_info, optimizer)
     rescue StorageError => e
       say "Cache read failed — #{e.message}", :red
@@ -234,8 +268,8 @@ module Gamechanger
 
     desc 'equity', 'Show playing time participation for all players'
     def equity
-      storage   = Storage.new
-      formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
+      storage   = Storage.new(season: current_season)
+      formatter = build_formatter
       show_equity(storage, formatter)
     rescue StorageError => e
       say "Cache read failed — #{e.message}", :red
@@ -251,8 +285,8 @@ module Gamechanger
     option :player,  type: :string, desc: 'Deep-dive arc for a single batter (prefix match)'
     option :pitcher, type: :string, desc: 'Deep-dive arc for a single pitcher (prefix match)'
     def progress
-      storage   = Storage.new
-      formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
+      storage   = Storage.new(season: current_season)
+      formatter = build_formatter
       if options[:player]
         show_progress_player(options[:player], :bat, storage, formatter)
       elsif options[:pitcher]
@@ -273,7 +307,7 @@ module Gamechanger
     desc 'brief', 'Pre-game intelligence brief (pitcher plan, lineup, equity, development)'
     option :date, type: :string, desc: 'Target game date YYYY-MM-DD (default: next scheduled game)'
     def brief
-      storage = Storage.new
+      storage = Storage.new(season: current_season)
       target_date, game_info = resolve_target(options[:date], storage: storage)
 
       availability_rows = storage.pitcher_availability_data(before_date: target_date)
@@ -290,7 +324,7 @@ module Gamechanger
         rules:             PitchRules.new
       )
 
-      formatter = options[:format] == 'json' ? Formatters::Json.new : Formatters::Table.new
+      formatter = build_formatter
       puts formatter.brief(target_date, game_info, brief_obj)
     rescue StorageError => e
       say "Cache read failed — #{e.message}", :red
@@ -308,6 +342,18 @@ module Gamechanger
     end
 
     private
+
+    def current_season
+      Config.new.season
+    end
+
+    def build_formatter
+      case options[:format]
+      when 'json'     then Formatters::Json.new
+      when 'markdown' then Formatters::Markdown.new
+      else                 Formatters::Table.new
+      end
+    end
 
     def load_config!
       config = Config.new

@@ -38,7 +38,7 @@ RSpec.shared_context 'seeded storage' do
     allow(Gamechanger::Storage).to receive(:new).and_return(storage)
     allow(Gamechanger::Config).to receive(:new).and_return(
       instance_double(Gamechanger::Config, configured?: true,
-                      team_id: 'team-1', team_slug: 'abc123')
+                      team_id: 'team-1', team_slug: 'abc123', season: Date.today.year)
     )
     allow(Gamechanger::Syncer).to receive(:new).and_return(
       instance_double(Gamechanger::Syncer, run: nil)

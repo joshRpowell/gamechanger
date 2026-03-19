@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 module Gamechanger
+  SyncResult = Struct.new(:games, :outings, :at_bats)
+
   # Fetches and persists games + pitcher/batter stats from the Gamechanger API.
   #
   # Extracted from CLI so sync logic can be unit-tested and reused
@@ -40,6 +42,7 @@ module Gamechanger
       raw_games  = client.games(team_id: team_id)
       games_list = extract_games(raw_games)
       today      = Date.today.to_s
+      result     = SyncResult.new(0, 0, 0)
 
       games_list.each do |game|
         parsed = parse_game(game)
@@ -59,8 +62,15 @@ module Gamechanger
         batter_stats = BatterStatsParser.new(raw_boxscore, team_slug: team_slug).batter_stats
         @storage.upsert_batter_stats(game_id: parsed[:game_id], stats: batter_stats) if batter_stats.any?
 
-        @storage.upsert_game(parsed.merge(status: 'final')) if stats.any?
+        if stats.any?
+          @storage.upsert_game(parsed.merge(status: 'final'))
+          result.games   += 1
+          result.outings += stats.length
+          result.at_bats += batter_stats.sum { |s| s[:at_bats].to_i }
+        end
       end
+
+      result
     end
 
     private

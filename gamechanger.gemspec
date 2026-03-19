@@ -8,8 +8,8 @@ Gem::Specification.new do |spec|
   spec.authors = ['Joshua Powell']
   spec.email   = ['joshua@joshuapowell.com']
 
-  spec.summary     = 'CLI for tracking pitcher workload from Gamechanger'
-  spec.description = 'Fetches pitch count data from the Gamechanger baseball app and presents season workload analysis from the command line'
+  spec.summary     = 'Pre-game coaching analytics suite for youth baseball coaches'
+  spec.description = 'Command-line tool for youth baseball coaches that connects to Gamechanger and delivers a complete pre-game brief: pitcher availability, batting lineup, equity flags, and player development arcs — all in one command.'
   spec.homepage    = 'https://github.com/joshuapowell/gamechanger'
   spec.license     = 'MIT'
   spec.required_ruby_version = '>= 3.2.0'

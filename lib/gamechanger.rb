@@ -14,6 +14,7 @@ require_relative 'gamechanger/pre_game_brief'
 require_relative 'gamechanger/syncer'
 require_relative 'gamechanger/formatters/table'
 require_relative 'gamechanger/formatters/json'
+require_relative 'gamechanger/formatters/markdown'
 require_relative 'gamechanger/cli'
 
 module Gamechanger

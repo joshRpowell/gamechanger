@@ -63,8 +63,9 @@ module Gamechanger
       SQL
     ].freeze
 
-    def initialize(data_dir: nil)
+    def initialize(data_dir: nil, season: Date.today.year)
       @data_dir = data_dir
+      @season   = season.to_i
     end
 
     def data_dir
@@ -76,6 +77,14 @@ module Gamechanger
           FileUtils.mkdir_p(dir, mode: 0o700)
           dir
         end
+    end
+
+    def season_start
+      "#{@season}-01-01"
+    end
+
+    def next_season_start
+      "#{@season + 1}-01-01"
     end
 
     def db_path
@@ -149,7 +158,7 @@ module Gamechanger
     # Sorted by season OBP descending.
     # @return [Array<Hash>] one row per batter
     def season_batting_summary
-      db.execute(<<~SQL)
+      db.execute(<<~SQL, [season_start, next_season_start])
         SELECT
           gbs.batter_name,
           COUNT(DISTINCT gbs.game_id)                                AS games,
@@ -166,6 +175,7 @@ module Gamechanger
         FROM game_batter_stats gbs
         JOIN games g ON g.game_id = gbs.game_id
         WHERE gbs.at_bats > 0
+          AND g.game_date >= ? AND g.game_date < ?
         GROUP BY gbs.batter_name
         ORDER BY
           CASE WHEN (SUM(gbs.at_bats) + SUM(gbs.walks)) > 0
@@ -179,17 +189,20 @@ module Gamechanger
     # @return [Array<String>] matching names if multiple, or Array<Hash> game rows if exactly one match
     def batter_games(name)
       matches = db.execute(
-        "SELECT DISTINCT batter_name FROM game_batter_stats WHERE LOWER(batter_name) LIKE LOWER(?)",
-        ["%#{name}%"]
+        "SELECT DISTINCT gbs.batter_name FROM game_batter_stats gbs " \
+        "JOIN games g ON g.game_id = gbs.game_id " \
+        "WHERE LOWER(gbs.batter_name) LIKE LOWER(?) AND g.game_date >= ? AND g.game_date < ?",
+        ["%#{name}%", season_start, next_season_start]
       ).map { |r| r['batter_name'] }
       return matches unless matches.length == 1
 
-      db.execute(<<~SQL, [matches.first])
+      db.execute(<<~SQL, [matches.first, season_start, next_season_start])
         SELECT g.game_date, g.opponent, g.home_away, g.status,
                gbs.at_bats, gbs.hits, gbs.walks, gbs.strikeouts
         FROM game_batter_stats gbs
         JOIN games g ON g.game_id = gbs.game_id
         WHERE gbs.batter_name = ?
+          AND g.game_date >= ? AND g.game_date < ?
         ORDER BY g.game_date ASC
       SQL
     end
@@ -200,7 +213,8 @@ module Gamechanger
     # @param before_date [String, Date] exclusive upper bound on game_date
     # @return [Array<Hash>] one row per batter
     def batter_lineup_data(before_date:)
-      db.execute(<<~SQL, [before_date.to_s, before_date.to_s, before_date.to_s, before_date.to_s])
+      bd = before_date.to_s
+      db.execute(<<~SQL, [bd, bd, bd, bd, season_start, next_season_start])
         SELECT
           gbs.batter_name,
           SUM(CASE WHEN g.game_date >= date(?, '-7 days') AND gbs.at_bats > 0
@@ -215,6 +229,7 @@ module Gamechanger
         FROM game_batter_stats gbs
         JOIN games g ON g.game_id = gbs.game_id
         WHERE g.game_date < ?
+          AND g.game_date >= ? AND g.game_date < ?
           AND gbs.at_bats > 0
         GROUP BY gbs.batter_name
         ORDER BY gbs.batter_name ASC
@@ -231,44 +246,52 @@ module Gamechanger
     # @return [Array<Hash>] one row per player
     def player_participation
       total_games = db.execute(
-        "SELECT COUNT(*) AS n FROM games WHERE status = 'final'"
+        "SELECT COUNT(*) AS n FROM games WHERE status = 'final' AND game_date >= ? AND game_date < ?",
+        [season_start, next_season_start]
       ).first['n'].to_i
 
-      rows = db.execute(<<~SQL)
-        WITH all_players AS (
-          SELECT DISTINCT batter_name AS player_name FROM game_batter_stats
+      rows = db.execute(<<~SQL, [season_start, next_season_start])
+        WITH season_games AS (
+          SELECT game_id, game_date, status
+          FROM games
+          WHERE game_date >= ? AND game_date < ?
+        ),
+        all_players AS (
+          SELECT DISTINCT gbs.batter_name AS player_name
+          FROM game_batter_stats gbs
+          JOIN season_games sg ON sg.game_id = gbs.game_id
           UNION
-          SELECT DISTINCT pitcher_name FROM game_pitcher_stats
+          SELECT DISTINCT gps.pitcher_name
+          FROM game_pitcher_stats gps
+          JOIN season_games sg ON sg.game_id = gps.game_id
         ),
         batting AS (
           SELECT gbs.batter_name,
-                 MAX(g.game_date)            AS last_bat_date,
-                 COUNT(DISTINCT gbs.game_id) AS total_games_batted
+                 MAX(sg.game_date)            AS last_bat_date,
+                 COUNT(DISTINCT gbs.game_id)  AS total_games_batted
           FROM game_batter_stats gbs
-          JOIN games g ON g.game_id = gbs.game_id
-          WHERE gbs.at_bats > 0
-            AND g.status = 'final'
+          JOIN season_games sg ON sg.game_id = gbs.game_id
+          WHERE gbs.at_bats > 0 AND sg.status = 'final'
           GROUP BY gbs.batter_name
         ),
         pitching AS (
           SELECT gps.pitcher_name,
-                 MAX(g.game_date)             AS last_pitch_date,
+                 MAX(sg.game_date)            AS last_pitch_date,
                  COUNT(DISTINCT gps.game_id)  AS total_games_pitched
           FROM game_pitcher_stats gps
-          JOIN games g ON g.game_id = gps.game_id
-          WHERE gps.pitches_thrown > 0
-            AND g.status = 'final'
+          JOIN season_games sg ON sg.game_id = gps.game_id
+          WHERE gps.pitches_thrown > 0 AND sg.status = 'final'
           GROUP BY gps.pitcher_name
         )
         SELECT
           p.player_name,
           bat.last_bat_date,
-          (SELECT COUNT(*) FROM games g4
+          (SELECT COUNT(*) FROM season_games g4
            WHERE g4.game_date > bat.last_bat_date
              AND g4.status = 'final')  AS games_since_last_batted,
           bat.total_games_batted,
           pit.last_pitch_date,
-          (SELECT COUNT(*) FROM games g5
+          (SELECT COUNT(*) FROM season_games g5
            WHERE g5.game_date > pit.last_pitch_date
              AND g5.status = 'final')  AS games_since_last_pitched,
           pit.total_games_pitched
@@ -288,15 +311,16 @@ module Gamechanger
     # Uses SQLite window functions (ROW_NUMBER) — requires SQLite 3.25+.
     # @return [Array<Hash>] one row per player with batting and pitching arc data
     def all_player_development_summary
-      db.execute(<<~SQL)
+      db.execute(<<~SQL, [season_start, next_season_start, season_start, next_season_start])
         WITH total_games AS (
-          SELECT COUNT(*) AS n FROM games WHERE status = 'final'
+          SELECT COUNT(*) AS n FROM games
+          WHERE status = 'final' AND game_date >= ? AND game_date < ?
         ),
         ordered_games AS (
           SELECT game_id, game_date,
                  ROW_NUMBER() OVER (ORDER BY game_date ASC) AS seq
           FROM games
-          WHERE status = 'final'
+          WHERE status = 'final' AND game_date >= ? AND game_date < ?
         ),
         batting_per_game AS (
           SELECT gbs.batter_name,
@@ -382,7 +406,7 @@ module Gamechanger
     # @param player_name [String] exact batter name
     # @return [Array<Hash>] one row per game the batter appeared in
     def player_batting_arc(player_name:)
-      db.execute(<<~SQL, [player_name])
+      db.execute(<<~SQL, [player_name, season_start, next_season_start])
         SELECT g.game_date,
                ROW_NUMBER() OVER (ORDER BY g.game_date ASC) AS game_seq,
                gbs.hits, gbs.walks, gbs.at_bats
@@ -390,6 +414,7 @@ module Gamechanger
         JOIN games g ON g.game_id = gbs.game_id
         WHERE gbs.batter_name = ?
           AND g.status = 'final'
+          AND g.game_date >= ? AND g.game_date < ?
           AND gbs.at_bats + gbs.walks > 0
         ORDER BY g.game_date ASC
       SQL
@@ -400,7 +425,7 @@ module Gamechanger
     # @param pitcher_name [String] exact pitcher name
     # @return [Array<Hash>] one row per outing
     def player_pitching_arc(pitcher_name:)
-      db.execute(<<~SQL, [pitcher_name])
+      db.execute(<<~SQL, [pitcher_name, season_start, next_season_start])
         SELECT g.game_date,
                ROW_NUMBER() OVER (ORDER BY g.game_date ASC) AS game_seq,
                gps.pitches_thrown, gps.strikes_thrown, gps.innings_pitched
@@ -408,6 +433,7 @@ module Gamechanger
         JOIN games g ON g.game_id = gps.game_id
         WHERE gps.pitcher_name = ?
           AND g.status = 'final'
+          AND g.game_date >= ? AND g.game_date < ?
           AND gps.pitches_thrown > 0
         ORDER BY g.game_date ASC
       SQL
@@ -430,7 +456,7 @@ module Gamechanger
     # Season summary: all pitchers with totals, per-game average, and 7-day total.
     # @return [Array<Hash>] one row per pitcher
     def season_summary
-      db.execute(<<~SQL)
+      db.execute(<<~SQL, [season_start, next_season_start])
         SELECT
           gps.pitcher_name,
           COUNT(DISTINCT gps.game_id)                                  AS games_pitched,
@@ -442,6 +468,7 @@ module Gamechanger
           MAX(g.game_date)                                             AS last_outing
         FROM game_pitcher_stats gps
         JOIN games g ON g.game_id = gps.game_id
+        WHERE g.game_date >= ? AND g.game_date < ?
         GROUP BY gps.pitcher_name
         ORDER BY total_pitches DESC
       SQL
@@ -452,17 +479,20 @@ module Gamechanger
     # @return [Array<Hash>] matching pitcher names, or game rows if exactly one match
     def pitcher_games(name)
       matches = db.execute(
-        "SELECT DISTINCT pitcher_name FROM game_pitcher_stats WHERE LOWER(pitcher_name) LIKE LOWER(?)",
-        ["%#{name}%"]
+        "SELECT DISTINCT gps.pitcher_name FROM game_pitcher_stats gps " \
+        "JOIN games g ON g.game_id = gps.game_id " \
+        "WHERE LOWER(gps.pitcher_name) LIKE LOWER(?) AND g.game_date >= ? AND g.game_date < ?",
+        ["%#{name}%", season_start, next_season_start]
       ).map { |r| r['pitcher_name'] }
       return matches unless matches.length == 1
 
-      db.execute(<<~SQL, [matches.first])
+      db.execute(<<~SQL, [matches.first, season_start, next_season_start])
         SELECT g.game_date, g.opponent, g.home_away, g.status,
                gps.pitches_thrown, gps.strikes_thrown, gps.innings_pitched
         FROM game_pitcher_stats gps
         JOIN games g ON g.game_id = gps.game_id
         WHERE gps.pitcher_name = ?
+          AND g.game_date >= ? AND g.game_date < ?
         ORDER BY g.game_date ASC
       SQL
     end
@@ -487,8 +517,10 @@ module Gamechanger
     # Nearest game with game_date strictly after after_date, or nil if none.
     def next_scheduled_game(after_date: Date.today.to_s)
       db.execute(
-        "SELECT game_id, game_date, opponent, home_away FROM games WHERE game_date > ? ORDER BY game_date ASC LIMIT 1",
-        [after_date.to_s]
+        "SELECT game_id, game_date, opponent, home_away FROM games " \
+        "WHERE game_date > ? AND game_date >= ? AND game_date < ? " \
+        "ORDER BY game_date ASC LIMIT 1",
+        [after_date.to_s, season_start, next_season_start]
       ).first
     end
 
@@ -496,7 +528,7 @@ module Gamechanger
     # (summed across doubleheader), and 7-day total anchored to before_date.
     # Excludes rows where pitches_thrown = 0.
     def pitcher_availability_data(before_date:)
-      db.execute(<<~SQL, [before_date.to_s, before_date.to_s])
+      db.execute(<<~SQL, [before_date.to_s, before_date.to_s, season_start, next_season_start])
         SELECT
           sub.pitcher_name,
           sub.last_outing,
@@ -520,6 +552,7 @@ module Gamechanger
           FROM game_pitcher_stats gps
           JOIN games g ON g.game_id = gps.game_id
           WHERE g.game_date < ?
+            AND g.game_date >= ? AND g.game_date < ?
             AND gps.pitches_thrown > 0
           GROUP BY gps.pitcher_name
         ) sub

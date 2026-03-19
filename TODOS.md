@@ -26,7 +26,7 @@ Deferred work captured during /plan-eng-review and /plan-ceo-review on 2026-03-1
 
 ---
 
-## CEO-10. `gamechanger refresh` command + `brief` as default + `--format markdown`
+## ~~CEO-10. `gamechanger refresh` command + `brief` as default + `--format markdown`~~ ✅
 
 **What:** Three UX improvements: (1) `gamechanger refresh` top-level sync command with count reporting ("3 games, 8 outings, 45 at-bats updated"); (2) `default_task :brief` so bare `gamechanger` runs the brief; (3) `Formatters::Markdown` class + extend `--format` enum to include `markdown` on all commands.
 **Why:** Removes friction for the pre-game use case; makes data lifecycle explicit; enables sharing briefs via pipe/clipboard.

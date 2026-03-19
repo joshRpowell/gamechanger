@@ -1,6 +1,11 @@
-# Gamechanger Pitch Count Tracker
+# Gamechanger
 
-A Ruby CLI gem that fetches pitcher workload data from the [Gamechanger](https://web.gc.com) baseball app and presents season-wide pitch count analysis from the command line.
+A command-line coaching analytics suite for youth baseball coaches. Connects to your [Gamechanger](https://web.gc.com) account and gives you a complete pre-game brief — pitcher availability, suggested lineup, equity flags, and development arcs — in one command.
+
+```bash
+gamechanger          # pre-game brief for your next scheduled game
+gamechanger refresh  # pull latest data from Gamechanger
+```
 
 ## Requirements
 
@@ -39,62 +44,80 @@ password: your_password
 team_id: "12345"    # find this in the URL when viewing your team on web.gc.com
 ```
 
+## Commands at a glance
+
+| Command | Description |
+|---------|-------------|
+| `setup` | Configure credentials and auto-detect your team |
+| `refresh` | Sync latest game data from Gamechanger |
+| `brief` | Pre-game intelligence brief — pitcher plan, lineup, equity, development |
+| `pitches` | Pitcher workload summary for the season |
+| `availability` | Pitcher availability and rest status for the next game |
+| `plan` | Tournament pitcher deployment plan |
+| `hitting` | Season batting stats |
+| `lineup` | Suggested batting order based on recent OBP |
+| `equity` | Playing time participation for all players |
+| `progress` | Player development arcs across the season |
+
 ## Usage
 
-### Season summary (all pitchers)
+### Pre-game brief (default)
 
 ```bash
-bundle exec gamechanger pitches
+bundle exec gamechanger
+bundle exec gamechanger brief
+bundle exec gamechanger brief --date 2026-03-21
+bundle exec gamechanger brief --format markdown | pbcopy   # copy to clipboard for iMessage/Slack
 ```
 
-Output:
-
-```
-┌───────────────┬────┬───────────────┬──────────┬─────────────┬──────────────┐
-│ Pitcher       │ GP │ Total Pitches │ Avg/Game │ 7-Day Total │ Last Outing  │
-├───────────────┼────┼───────────────┼──────────┼─────────────┼──────────────┤
-│ Alice Smith   │  8 │           512 │     64.0 │          65 │ 2026-03-14   │
-│ Bob Jones     │  5 │           320 │     64.0 │           0 │ 2026-03-02   │
-└───────────────┴────┴───────────────┴──────────┴─────────────┴──────────────┘
-```
-
-### Single pitcher deep-dive
+### Sync data
 
 ```bash
-bundle exec gamechanger pitches --pitcher "Alice"
+bundle exec gamechanger refresh          # sync all games
+bundle exec gamechanger pitches          # sync and show pitcher workload
+bundle exec gamechanger pitches --refresh  # force re-fetch of in-progress games
 ```
 
-### Single game breakdown
+### Pitcher availability
 
 ```bash
-bundle exec gamechanger pitches --game 2026-03-14
+bundle exec gamechanger availability
+bundle exec gamechanger availability --date 2026-03-21
 ```
 
-### Force refresh from Gamechanger
+### Tournament planning
 
 ```bash
-bundle exec gamechanger pitches --refresh
+bundle exec gamechanger plan --from 2026-03-21 --to 2026-03-22
+bundle exec gamechanger plan --games 2026-03-21,2026-03-22,2026-03-23
+bundle exec gamechanger plan --games 2026-03-21 --ace "Smith" --skip "Jones"
 ```
 
-### JSON output
-
-All views support `--format json`:
+### Batting
 
 ```bash
+bundle exec gamechanger hitting
+bundle exec gamechanger lineup
+bundle exec gamechanger lineup --date 2026-03-21
+```
+
+### Player development
+
+```bash
+bundle exec gamechanger progress
+bundle exec gamechanger progress --player "Alice"
+bundle exec gamechanger progress --pitcher "Smith"
+bundle exec gamechanger equity
+```
+
+### Output formats
+
+All commands support `--format table` (default), `--format json`, and `--format markdown`:
+
+```bash
+bundle exec gamechanger brief --format markdown | pbcopy
 bundle exec gamechanger pitches --format json
-bundle exec gamechanger pitches --pitcher "Alice" --format json
-bundle exec gamechanger pitches --game 2026-03-14 --format json
 ```
-
-## Options
-
-| Flag | Description |
-|------|-------------|
-| `--pitcher NAME` | Filter to a single pitcher (case-insensitive substring) |
-| `--game YYYY-MM-DD` | Show a single game by date |
-| `--game-number N` | For doubleheaders, pick game 1 or 2 (default: 1) |
-| `--refresh` | Force re-fetch of non-final games |
-| `--format table\|json` | Output format (default: table) |
 
 ## Exit codes
 

@@ -227,6 +227,65 @@ RSpec.describe Gamechanger::CLI do
     end
   end
 
+  describe '#refresh' do
+    context 'when not configured' do
+      before do
+        allow(Gamechanger::Config).to receive(:new).and_return(
+          instance_double(Gamechanger::Config, configured?: false)
+        )
+      end
+
+      it 'exits with code 4' do
+        expect { described_class.start(['refresh']) }.to raise_error(SystemExit) do |e|
+          expect(e.status).to eq(4)
+        end
+      end
+    end
+
+    context 'when authentication fails' do
+      before do
+        allow(Gamechanger::Config).to receive(:new).and_return(
+          instance_double(Gamechanger::Config, configured?: true, season: Date.today.year)
+        )
+        allow(Gamechanger::Storage).to receive(:new).and_return(
+          instance_double(Gamechanger::Storage, close: nil)
+        )
+        allow(Gamechanger::Syncer).to receive(:new).and_return(
+          instance_double(Gamechanger::Syncer).tap do |s|
+            allow(s).to receive(:run).and_raise(Gamechanger::AuthError, 'bad token')
+          end
+        )
+      end
+
+      it 'exits with code 2' do
+        expect { described_class.start(['refresh']) }
+          .to output(/Authentication error/).to_stdout
+          .and raise_error(SystemExit) { |e| expect(e.status).to eq(2) }
+      end
+    end
+
+    context 'happy path' do
+      include_context 'seeded storage'
+
+      it 'prints a count summary' do
+        allow(Gamechanger::Syncer).to receive(:new).and_return(
+          instance_double(Gamechanger::Syncer,
+                          run: Gamechanger::SyncResult.new(3, 8, 45))
+        )
+        expect { described_class.start(['refresh']) }
+          .to output(/3 games.*8 outings.*45 at-bats/i).to_stdout
+      end
+
+      it 'uses force: true on the syncer' do
+        syncer = instance_double(Gamechanger::Syncer,
+                                 run: Gamechanger::SyncResult.new(0, 0, 0))
+        allow(Gamechanger::Syncer).to receive(:new).and_return(syncer)
+        described_class.start(['refresh'])
+        expect(syncer).to have_received(:run).with(force: true)
+      end
+    end
+  end
+
   describe '#pitches' do
     context 'when not configured' do
       before do
