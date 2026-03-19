@@ -6,3 +6,10 @@
 {"run":5,"commit":"d791a1b","metric":90.84,"metrics":{"branch_coverage":76.45,"test_failures":0},"status":"keep","description":"markdown_spec.rb — all methods + branches covered","timestamp":1773926593,"segment":0}
 {"run":6,"commit":"ca1f4fb","metric":100.0,"metrics":{"branch_coverage":85.87,"test_failures":0},"status":"keep","description":"100% line coverage — config, client, storage, syncer, development_arc, cli edge cases","timestamp":1773939064,"segment":0}
 {"type":"config","name":"gamechanger-test-speed","metricName":"time_seconds","metricUnit":"s","bestDirection":"lower"}
+{"run":7,"commit":"bb25d58","metric":0.688,"metrics":{"test_failures":0},"status":"keep","description":"baseline — SimpleCov gated, time_seconds metric","timestamp":1773940309,"segment":1}
+{"run":8,"commit":"d39c1ca","metric":0.628,"metrics":{"test_failures":0},"status":"keep","description":"P1: bootsnap gem for bytecode+require caching","timestamp":1773942794,"segment":1}
+{"run":9,"commit":"d39c1ca","metric":0.778,"metrics":{"test_failures":0},"status":"discard","description":"P2: remove --color from .rspec — no measurable improvement (high variance)","timestamp":1773942996,"segment":1}
+{"run":10,"commit":"d39c1ca","metric":0.703,"metrics":{"test_failures":0},"status":"discard","description":"P3: defined order instead of random — no improvement (avg 0.70s vs 0.628s)","timestamp":1773943041,"segment":1}
+{"run":11,"commit":"d39c1ca","metric":1.099,"metrics":{"test_failures":18},"status":"discard","description":"P6: parallel_tests -n 4 — 18 failures due to Thor global state conflicts across processes","timestamp":1773944072,"segment":1}
+{"run":12,"commit":"d39c1ca","metric":0.638,"metrics":{"test_failures":0},"status":"discard","description":"P4+P8-variant: --format dot (invalid format) + warnings=false — reverted","timestamp":1773944478,"segment":1}
+{"run":13,"commit":"d39c1ca","metric":1.371,"metrics":{"test_failures":0},"status":"discard","description":"YJIT via RUBYOPT=--yjit — JIT warmup cost exceeds gains for short test runs (1.37s vs 0.628s)","timestamp":1773944656,"segment":1}

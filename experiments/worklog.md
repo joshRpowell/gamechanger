@@ -38,3 +38,40 @@
 
 ## Next Ideas
 - Branch coverage improvement: 85.87% → 100% (57 uncovered branches remaining)
+
+---
+
+# Autoresearch Worklog: Test Suite Speed
+
+## Session: gamechanger-test-speed — 2026-03-19
+
+**Goal:** Minimize wall-clock time for `bundle exec rspec` (dev mode, no SimpleCov).
+**Baseline:** ~0.69s. Target: <0.10s initially; <0.40s as first milestone.
+
+---
+
+### Run 7: Baseline — time_seconds=0.688 (KEEP)
+- Timestamp: 2026-03-19 13:09
+- What changed: SimpleCov gated behind ENV['COVERAGE'], autoresearch.sh rewritten for time measurement
+- Result: 0.688s, 0 test failures, 493 examples
+- Insight: ~0.25s RSpec internal; bundler+ruby startup is a significant chunk. File loading (SimpleCov removed) is still ~83% of wall-clock.
+- Next: P1 bootsnap — bytecode and require path caching
+
+### Run 8: P1 bootsnap — time_seconds=0.628 (KEEP)
+- Timestamp: 2026-03-19 13:12
+- What changed: Added bootsnap gem; explicit Bootsnap.setup in spec_helper.rb with cache_dir: tmp/bootsnap
+- Result: 0.628s (-8.7%), 0 test failures, 493 examples
+- Insight: ~9% improvement after cache warm-up. First run builds the cache; subsequent runs reuse bytecode. bootsnap/setup was unusable (can't infer app root from spec dir) — explicit Bootsnap.setup with absolute cache_dir required.
+- Next: P2 — remove --color from .rspec (~0.005s theoretical)
+
+## Key Insights
+- macOS BSD date doesn't support %N — use `ruby -e 'print (Time.now.to_f * 1000000000).to_i'` for nanosecond timing
+- bootsnap/setup fails from spec_helper.rb context; use Bootsnap.setup with explicit cache_dir
+- Wall-clock includes bundler startup; RSpec internal time (~0.25s) is only part of the picture
+- Bootsnap warm cache shows ~9% improvement; cold cache (first run) shows no improvement
+
+## Next Ideas
+- P2: Remove --color from .rspec (~0.005s)
+- P3: Remove random order (~0.005s)
+- P4: --format dot
+- P6: parallel_tests across CPU cores (40-60% reduction)

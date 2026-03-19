@@ -35,29 +35,48 @@ The previous experiment achieved 100% line coverage (6 runs). This experiment op
 - `COVERAGE=1 bundle exec rspec` must still report 100% line coverage, 493+ examples
 - No test deletions — guard with example count check
 
-## Experiment Search Space (P0 → P8, try in order)
+## Experiment Search Space (P0 → P8)
 
-| Priority | Experiment | Estimated Savings | Files |
-|----------|-----------|------------------|-------|
-| P0 | Gate SimpleCov behind ENV['COVERAGE'] ✅ DONE | ~0.05–0.10s | spec/spec_helper.rb |
-| P1 | Add `bootsnap` gem (bytecode + require cache) | 0.05–0.15s | Gemfile, .bundle/config |
-| P2 | Remove `--color` from `.rspec` | ~0.005s | .rspec |
-| P3 | Replace `config.order = :random` with `:defined` | ~0.005s | spec/spec_helper.rb |
-| P4 | Switch to `--format dot` in `.rspec` | ~0.003s | .rspec |
-| P5 | Profile slow requires with ruby-prof | identifies targets | analysis |
-| P6 | `parallel_tests` gem — split across CPU cores | 40–60% | Gemfile, config |
-| P7 | Lazy-load heavy requires inside `let` blocks | varies | spec files |
-| P8 | Trim shared contexts — reduce per-example setup | varies | spec/spec_helper.rb |
+| Priority | Experiment | Result | Savings |
+|----------|-----------|--------|---------|
+| P0 | Gate SimpleCov behind ENV['COVERAGE'] | ✅ KEEP | baseline set |
+| P1 | Add `bootsnap` gem (bytecode + require cache) | ✅ KEEP | −9% (0.628s) |
+| P2 | Remove `--color` from `.rspec` | ❌ DISCARD | negligible, high variance |
+| P3 | Replace `config.order = :random` with `:defined` | ❌ DISCARD | negligible, high variance |
+| P4 | `--format dot` | ❌ DISCARD | not a valid RSpec format |
+| P5 | Profile slow requires (ruby-prof / --profile) | ℹ️ DONE | test execution ~0.25s internal; bundler startup ~0.28s |
+| P6 | `parallel_tests` gem — split across CPU cores | ❌ DISCARD | 18 test failures (Thor CLI global state) |
+| P7 | Lazy-load heavy requires in `let` blocks | ❌ N/A | lib/ is off limits; all spec requires needed |
+| P8 | Trim shared contexts / disable warnings | ❌ DISCARD | seeded storage is fast (SQLite :memory:); warnings cost <1ms |
+| BONUS | YJIT via RUBYOPT=--yjit | ❌ DISCARD | 2.2× slower (JIT warmup kills short runs) |
+| BONUS | binstub (bin/rspec) | ❌ DISCARD | same as bundle exec (no savings) |
+| BONUS | bundle install --standalone | ❌ DISCARD | slower (no bootsnap path caching) |
 
 ## What's Been Tried
 
-### Baseline (Run 1) — ~0.69s wall-clock
-- SimpleCov gated behind ENV['COVERAGE'] (P0 applied before baseline)
-- Measured with bash autoresearch.sh timing ruby subprocesses
-- 493 examples, 0 failures
-- Note: 0.69s is full pipeline including bundler startup; rspec reports ~0.25s internally
+### Architecture Insight (critical finding)
+Wall-clock breakdown:
+- bundler CLI startup: ~0.28s (irreducible without Spring/nenv)
+- file loading (with warm bootsnap cache): ~0.10s
+- test execution (493 examples): ~0.25s
+- Total floor: ~0.53s
 
-### Strategy Notes
-- P0 (SimpleCov gate) is already applied as part of bootstrap — measure its impact in Run 2 vs a coverage-on baseline
-- P1 (bootsnap) is highest-upside next experiment — targets Ruby require bytecode caching
-- macOS date doesn't support %N; using `ruby -e 'print (Time.now.to_f * 1000000000).to_i'` for nanosecond timing
+Current best (run 8): **0.628s** — within 0.10s of the theoretical floor.
+
+To reach <0.40s would require eliminating bundler startup via:
+- Spring (Rails-only, not applicable here)
+- Running ruby directly with pre-built load paths (complex, fragile)
+- Fixing parallel_tests Thor failures to enable CPU-parallel execution
+
+### Run 7 — Baseline: 0.688s
+- SimpleCov gated (P0), autoresearch.sh measuring wall-clock time
+- 493 examples, 0 failures
+
+### Run 8 — bootsnap (P1): 0.628s ✅ KEEP
+- bootsnap/setup fails from spec/ dir; use explicit Bootsnap.setup with cache_dir
+- ~9% improvement on warm cache runs
+- macOS date doesn't support %N; using `ruby -e 'print (Time.now.to_f * 1000000000).to_i'`
+
+### Runs 9-13 — All Discarded
+- P2 (--color), P3 (:defined), P6 (parallel_tests), YJIT, binstub: none improved on 0.628s
+- High timing variance (±0.1s) masks micro-optimizations
