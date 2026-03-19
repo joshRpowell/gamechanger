@@ -17,6 +17,13 @@ RSpec.describe Gamechanger::PitchRules do
   end
 
   describe '#available_date' do
+    # Regression: ISSUE-002 — available_date raised Date::Error when last_outing_date was nil
+    # Found by /qa on 2026-03-19
+    # Report: .gstack/qa-reports/qa-report-gamechanger-2026-03-19.md
+    it 'returns today when last_outing_date is nil (pitcher never pitched)' do
+      expect(rules.available_date(nil, 0)).to eq(Date.today)
+    end
+
     it 'is last_outing + rest_days + 1 (off-by-one)' do
       # 66 pitches → 3 days rest → available on day 4, i.e. +4 from outing date
       expect(rules.available_date('2026-03-15', 66)).to eq(Date.new(2026, 3, 19))

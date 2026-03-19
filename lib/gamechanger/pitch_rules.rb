@@ -21,6 +21,8 @@ module Gamechanger
     end
 
     def available_date(last_outing_date, pitches)
+      return Date.today if last_outing_date.nil?
+
       Date.parse(last_outing_date.to_s) + rest_days_required(pitches) + 1
     end
 
