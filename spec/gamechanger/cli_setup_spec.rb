@@ -77,8 +77,12 @@ RSpec.describe Gamechanger::CLI, '#setup' do
     end
 
     it 'prints an authentication error message' do
-      expect { described_class.start(['setup']) rescue nil }
-        .to output(/Authentication failed/).to_stdout
+      expect do
+        begin
+          described_class.start(['setup'])
+        rescue SystemExit
+        end
+      end.to output(/Authentication failed/).to_stdout
     end
   end
 
