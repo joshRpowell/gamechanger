@@ -10,7 +10,8 @@ Available skills: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/pla
 
 ## Testing
 
-Run tests: `bundle exec rspec`
+Run tests (dev, fast):     `bundle exec rspec`
+Run tests (with coverage): `COVERAGE=1 bundle exec rspec`
 Test directory: `spec/`
 
 - 100% test coverage is the goal — tests make vibe coding safe
