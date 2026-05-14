@@ -1,11 +1,86 @@
 # TODOS
 
-Deferred work captured during /plan-eng-review and /plan-ceo-review on 2026-03-18.
+Deferred work captured during /plan-eng-review and /plan-ceo-review.
 
 ---
 
-## ~~CEO-8. Rewrite README + gemspec description~~ ✅
+## Active backlog (deferred from /plan-ceo-review 2026-05-13)
 
+### CEO-13. `journal` — coaching notes capture + pattern surfacing
+
+**What:** New `gc note "told Tommy to relax at the plate" --player Tommy` command writes a timestamped note attached to a player/game/practice. New `gc journal` shows recent notes grouped by player; surfaces patterns over time.
+**Why:** By mid-season you forget what you tried. A journal makes year-over-year coaching learnings legible and is the foundation for an eventual end-of-season report card.
+**Pros:** Long-tail compounding value; pairs naturally with `progress`; supports the multi-season story.
+**Cons:** Sync question — what if a note belongs on the phone, not the laptop? Could create a "I always forget to log notes" failure mode.
+**Effort:** M (human ~1 day / CC ~30 min). **Priority:** P3.
+**Depends on:** Nothing.
+**Source:** D5 from 2026-05-13 brainstorm review.
+
+### CEO-14. `practice` — practice plan generator from team weak spots
+
+**What:** Analyzes recent batting/pitching/fielding data, surfaces 3-5 team weak spots, generates a 60-min practice plan markdown with drill priorities.
+**Why:** Turns data into action — the highest-value coaching transformation. "Team K-rate up 20%" → "prioritize 2-strike approach drills."
+**Pros:** High aspirational value; converts existing analysis into prescriptive output.
+**Cons:** Recommendation logic is fuzzy without coach-in-the-loop validation. Drill recs may miss social/developmental context (which kid needs confidence vs. challenge).
+**Effort:** L (human ~1.5 days / CC ~45 min). **Priority:** P3.
+**Depends on:** Validating which drill recs actually work — needs a few real practice plans to compare against.
+**Source:** D6 from 2026-05-13 brainstorm review.
+
+### CEO-15. `scout` — opposing team pre-game data
+
+**What:** Pulls opposing team box scores from GC API (already included in boxscore responses), aggregates their pitcher tendencies + hitter splits. `gc scout --opponent 'Yankees'` outputs a competitive scouting brief.
+**Why:** Turns existing data into a competitive prep tool, not just a self-analysis tool.
+**Pros:** Leverages data you already have; reuses existing parsers.
+**Cons:** Two unknowns — (a) does the GC API expose enough opposing-team data to make this useful? (b) does scouting at youth level cross a line? Resolve both before committing.
+**Effort:** L (human ~2 days / CC ~1 hour). **Priority:** P3.
+**Depends on:** API probe + values check.
+**Source:** D7 from 2026-05-13 brainstorm review.
+
+### CEO-16. Morning auto-brief — launchd job delivers brief to phone
+
+**What:** A launchd plist + `gc daemon install` command. On game-day mornings (detected from cached schedule), the job runs `brief --format markdown` and delivers to phone via email / iCloud folder / Pushover.
+**Why:** Extends the "tool talks first" inflection beyond just in-game notifications. Pairs with watch.
+**Pros:** No terminal pre-game; tool reaches out instead of waiting to be queried.
+**Cons:** Watch already covers the higher-leverage moment; this is a nice-to-have, not a must-have.
+**Effort:** M (human ~1 day / CC ~30 min). **Priority:** P3.
+**Depends on:** Watch v1 shipped (so launchd patterns are established).
+**Source:** D8 from 2026-05-13 brainstorm review.
+
+### CEO-17. Multi-season `progress` — year-over-year arcs
+
+**What:** Relax season-scoped queries for `progress` so it can show 2+ year trajectories. New `--seasons 2024,2025,2026` flag. No schema migration required.
+**Why:** Multi-year arcs are the most meaningful coaching wins. "Hit .180 last year, .280 this year" is a powerful story to share with a kid.
+**Pros:** Schema already supports it (just relax the WHERE clause); high emotional value for the kids.
+**Cons:** Cache.db grows unbounded across seasons (small for a single team, but worth being explicit). Dormant until 2+ seasons of data accumulate.
+**Effort:** S (human ~half-day / CC ~20 min). **Priority:** P3.
+**Depends on:** Having 2+ seasons of cached data (verify before building).
+**Source:** D9 from 2026-05-13 brainstorm review.
+
+### CEO-18. Highlight detection — breakout games, slumps, personal bests
+
+**What:** After each sync, scan recent games for milestones (career-high pitch count, OBP > 1.5x season avg, 3+ K game, etc.). Surface as a section in `brief` and as flags in `progress`.
+**Why:** Data tells stories. "Tommy just had his best at-bat performance of the season" becomes a coaching moment grounded in hard data.
+**Pros:** Pure enrichment of existing commands; no new surfaces required.
+**Cons:** "Best" and "worst" framing may feed unhealthy comparison mindset for 9-12 year olds. Keep the framing growth-oriented if built.
+**Effort:** M (human ~1 day / CC ~30 min). **Priority:** P3.
+**Depends on:** Nothing.
+**Source:** D10 from 2026-05-13 brainstorm review.
+
+### MAINT-1. Split `formatters/table.rb` + `formatters/markdown.rb`
+
+**What:** Both files are at 499 LOC and growing. Pull per-command formatting (`#brief`, `#availability`, `#plan`, `#progress`, etc.) into per-command modules: `Formatters::Table::Brief`, `Formatters::Markdown::Brief`, etc. The top-level class becomes a thin dispatcher.
+**Why:** Adding new commands (watch, ask, parents) will push these past 700 LOC. The pain compounds.
+**Pros:** Smaller files are easier to read; per-command tests can target their own formatter module.
+**Cons:** Adds ~10 files; the existing pattern works fine until it doesn't.
+**Effort:** S (human ~half-day / CC ~20 min). **Priority:** P3 (do when one of the new feature PRs would otherwise push a file past 600 LOC).
+**Depends on:** Nothing.
+**Source:** 2026-05-13 brainstorm review architecture observation.
+
+---
+
+## Completed (v0.1.1)
+
+#
 **What:** Rewrite the README opening paragraph, gemspec summary and description, and add a "Commands at a glance" section listing all 8 commands with one-line descriptions.
 **Why:** The gem is described as a "pitch count tracker" but is a full coaching analytics suite. Misrepresentation hurts discoverability and creates cognitive dissonance.
 **Pros:** Accurately reflects the tool; improves discoverability on RubyGems.org.
