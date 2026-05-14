@@ -5,13 +5,32 @@ require 'fileutils'
 
 module Gamechanger
   class Config
-    CONFIG_DIR  = File.expand_path('~/.gamechanger').freeze
-    CONFIG_FILE = File.join(CONFIG_DIR, 'config.yml').freeze
+    DEFAULT_HOME = '~/.gamechanger'
+
+    # Legacy constants — frozen to the default home at gem load. Do NOT consult
+    # GAMECHANGER_HOME. Kept for back-compat; new callers prefer the class methods below.
+    CONFIG_DIR   = File.expand_path(DEFAULT_HOME).freeze
+    CONFIG_FILE  = File.join(CONFIG_DIR, 'config.yml').freeze
     SESSION_FILE = File.join(CONFIG_DIR, 'session').freeze
+
+    # Resolves the gamechanger home directory at call time, honoring GAMECHANGER_HOME.
+    # Used by the verify-parity harness to point Ruby and Go at the same fixture.
+    def self.home_dir
+      env = ENV['GAMECHANGER_HOME']
+      File.expand_path(env && !env.empty? ? env : DEFAULT_HOME)
+    end
+
+    def self.config_file_path
+      File.join(home_dir, 'config.yml')
+    end
+
+    def self.session_file_path
+      File.join(home_dir, 'session')
+    end
 
     attr_reader :email, :password, :team_id, :team_slug, :season, :device_id
 
-    def initialize(config_file: CONFIG_FILE)
+    def initialize(config_file: self.class.config_file_path)
       @config_file = config_file
       FileUtils.mkdir_p(File.dirname(@config_file), mode: 0o700)
       load_config
@@ -36,9 +55,10 @@ module Gamechanger
     end
 
     def cached_token
-      return nil unless File.exist?(SESSION_FILE)
+      session = self.class.session_file_path
+      return nil unless File.exist?(session)
 
-      token, expires_at = File.read(SESSION_FILE).strip.split('|', 2)
+      token, expires_at = File.read(session).strip.split('|', 2)
       return nil if token.nil? || token.empty?
       return nil if expires_at && Time.now.to_i > expires_at.to_i
 
@@ -49,13 +69,16 @@ module Gamechanger
 
     def cache_token(token, expires_at: nil)
       expires_at ||= Time.now.to_i + 3600  # fallback TTL if API doesn't provide expiry
-      File.open(SESSION_FILE, File::WRONLY | File::CREAT | File::TRUNC, 0o600) do |f|
+      session = self.class.session_file_path
+      FileUtils.mkdir_p(File.dirname(session), mode: 0o700)
+      File.open(session, File::WRONLY | File::CREAT | File::TRUNC, 0o600) do |f|
         f.write("#{token}|#{expires_at}")
       end
     end
 
     def clear_token
-      File.delete(SESSION_FILE) if File.exist?(SESSION_FILE)
+      session = self.class.session_file_path
+      File.delete(session) if File.exist?(session)
     end
 
     private
