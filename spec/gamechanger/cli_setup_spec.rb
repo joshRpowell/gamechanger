@@ -12,8 +12,10 @@ RSpec.describe Gamechanger::CLI, '#setup' do
   before do
     allow(Gamechanger::Config).to receive(:new).with(no_args).and_return(real_config)
 
-    # Stub interactive prompts: email, password, and optional team-selection answer
-    allow_any_instance_of(described_class).to receive(:ask) do |_instance, prompt, **_opts|
+    # Stub interactive prompts. Commands::Setup calls shell.ask, so stub the
+    # shell directly (not just the Thor instance). Thor::Shell::Color inherits
+    # from Thor::Shell::Basic, so stubbing on Basic catches both.
+    ask_stub = lambda do |_instance, prompt, *_args, **_opts|
       case prompt
       when 'Email:'    then 'coach@team.com'
       when /Password/  then 'secret'
@@ -21,6 +23,8 @@ RSpec.describe Gamechanger::CLI, '#setup' do
       else ''
       end
     end
+    allow_any_instance_of(described_class).to receive(:ask, &ask_stub)
+    allow_any_instance_of(Thor::Shell::Basic).to receive(:ask, &ask_stub)
   end
 
   after { FileUtils.rm_rf(tmp_dir) }

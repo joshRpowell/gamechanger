@@ -31,7 +31,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, next_scheduled_game: nil, close: nil)
         )
         expect { described_class.start(['availability']) }
-          .to output(/gamechanger pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end
@@ -52,7 +52,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, next_scheduled_game: nil, close: nil)
         )
         expect { described_class.start(['plan']) }
-          .to output(/gamechanger pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end
@@ -108,7 +108,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, season_batting_summary: [], close: nil)
         )
         expect { described_class.start(['hitting']) }
-          .to output(/gamechanger pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end
@@ -121,7 +121,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, next_scheduled_game: nil, close: nil)
         )
         expect { described_class.start(['lineup']) }
-          .to output(/gamechanger pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end
@@ -142,7 +142,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, player_participation: [], close: nil)
         )
         expect { described_class.start(['equity']) }
-          .to output(/gamechanger pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end
@@ -166,7 +166,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, all_player_development_summary: [], close: nil)
         )
         expect { described_class.start(['progress']) }
-          .to output(/gc pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end
@@ -201,7 +201,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, next_scheduled_game: nil, close: nil)
         )
         expect { described_class.start(['brief']) }
-          .to output(/pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end
@@ -407,9 +407,14 @@ RSpec.describe Gamechanger::CLI do
     let(:client_double) { instance_double(Gamechanger::Client) }
 
     before do
+      # Commands::Setup calls shell.ask, so stub on Thor::Shell::Basic as well.
       allow_any_instance_of(described_class).to receive(:ask)
         .with('Email:').and_return('coach@example.com')
       allow_any_instance_of(described_class).to receive(:ask)
+        .with('Password:', echo: false).and_return('secret')
+      allow_any_instance_of(Thor::Shell::Basic).to receive(:ask)
+        .with('Email:').and_return('coach@example.com')
+      allow_any_instance_of(Thor::Shell::Basic).to receive(:ask)
         .with('Password:', echo: false).and_return('secret')
       allow(Gamechanger::Config).to receive(:new).and_return(cfg_double)
       allow(Gamechanger::Client).to receive(:new).and_return(client_double)
@@ -484,6 +489,8 @@ RSpec.describe Gamechanger::CLI do
       before do
         allow_any_instance_of(described_class).to receive(:ask)
           .with(/slug/).and_return('manual-team')
+        allow_any_instance_of(Thor::Shell::Basic).to receive(:ask)
+          .with(/slug/).and_return('manual-team')
         allow(client_double).to receive(:authenticate)
         allow(client_double).to receive(:teams).and_return(42)
       end
@@ -498,6 +505,8 @@ RSpec.describe Gamechanger::CLI do
       before do
         allow_any_instance_of(described_class).to receive(:ask)
           .with(/slug/).and_return('manual-slug')
+        allow_any_instance_of(Thor::Shell::Basic).to receive(:ask)
+          .with(/slug/).and_return('manual-slug')
         allow(client_double).to receive(:authenticate)
         allow(client_double).to receive(:teams).and_return([])
       end
@@ -511,6 +520,8 @@ RSpec.describe Gamechanger::CLI do
     context 'when multiple teams found' do
       before do
         allow_any_instance_of(described_class).to receive(:ask)
+          .with(/Which team/).and_return('1')
+        allow_any_instance_of(Thor::Shell::Basic).to receive(:ask)
           .with(/Which team/).and_return('1')
         allow(client_double).to receive(:authenticate)
         allow(client_double).to receive(:teams).and_return([
@@ -528,6 +539,8 @@ RSpec.describe Gamechanger::CLI do
     context 'when single team has no slug field' do
       before do
         allow_any_instance_of(described_class).to receive(:ask)
+          .with(/slug/).and_return('my-slug')
+        allow_any_instance_of(Thor::Shell::Basic).to receive(:ask)
           .with(/slug/).and_return('my-slug')
         allow(client_double).to receive(:authenticate)
         allow(client_double).to receive(:teams)
