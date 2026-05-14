@@ -130,3 +130,84 @@ Deferred work captured during /plan-eng-review and /plan-ceo-review on 2026-03-1
 **Cons:** Item (2) adds a file for a 4-line method; may not be worth it.
 **Depends on:** Nothing.
 **Completed:** v0.1.1 (2026-03-19) — partial (TABLE_STYLE extracted; build_player_index skipped; availability refactor deferred)
+
+---
+
+## Active backlog (deferred from /plan-ceo-review 2026-05-13)
+
+### CEO-13. `journal` — coaching notes capture + pattern surfacing
+
+**What:** New `gc note "told Tommy to relax at the plate" --player Tommy` command writes a timestamped note attached to a player/game/practice. New `gc journal` shows recent notes grouped by player; surfaces patterns over time.
+**Why:** By mid-season you forget what you tried. A journal makes year-over-year coaching learnings legible and is the foundation for an eventual end-of-season report card.
+**Effort:** M (human ~1 day / CC ~30 min). **Priority:** P3.
+**Source:** D5 from 2026-05-13 brainstorm review.
+
+### CEO-14. `practice` — practice plan generator from team weak spots
+
+**What:** Analyzes recent batting/pitching/fielding data, surfaces 3-5 team weak spots, generates a 60-min practice plan markdown with drill priorities.
+**Why:** Turns data into action — the highest-value coaching transformation. "Team K-rate up 20%" → "prioritize 2-strike approach drills."
+**Effort:** L (human ~1.5 days / CC ~45 min). **Priority:** P3.
+**Depends on:** Validating which drill recs actually work — needs a few real practice plans to compare against.
+**Source:** D6 from 2026-05-13 brainstorm review.
+
+### CEO-15. `scout` — opposing team pre-game data
+
+**What:** Pulls opposing team box scores from GC API (already in boxscore responses), aggregates pitcher tendencies + hitter splits. `gc scout --opponent 'Yankees'` outputs a competitive scouting brief.
+**Why:** Turns existing data into a competitive prep tool, not just a self-analysis tool.
+**Effort:** L (human ~2 days / CC ~1 hour). **Priority:** P3.
+**Depends on:** API probe + values check (scouting at youth level).
+**Source:** D7 from 2026-05-13 brainstorm review.
+
+### CEO-16. Morning auto-brief — launchd job delivers brief to phone
+
+**What:** A launchd plist + `gc daemon install` command. On game-day mornings (detected from cached schedule), runs `brief --format markdown` and delivers to phone via email / iCloud folder / Pushover.
+**Why:** Extends the "tool talks first" inflection beyond just in-game notifications. Pairs with watch.
+**Effort:** M (human ~1 day / CC ~30 min). **Priority:** P3.
+**Depends on:** Watch v1 shipped (so launchd patterns are established).
+**Source:** D8 from 2026-05-13 brainstorm review.
+
+### CEO-17. Multi-season `progress` — year-over-year arcs
+
+**What:** Relax season-scoped queries for `progress` so it can show 2+ year trajectories. New `--seasons 2024,2025,2026` flag. No schema migration required.
+**Why:** Multi-year arcs are the most meaningful coaching wins. "Hit .180 last year, .280 this year" is a powerful story to share with a kid.
+**Effort:** S (human ~half-day / CC ~20 min). **Priority:** P3.
+**Depends on:** Having 2+ seasons of cached data (verify before building).
+**Source:** D9 from 2026-05-13 brainstorm review.
+
+### CEO-18. Highlight detection — breakout games, slumps, personal bests
+
+**What:** After each sync, scan recent games for milestones (career-high pitch count, OBP > 1.5x season avg, 3+ K game). Surface as a section in `brief` and as flags in `progress`.
+**Why:** Data tells stories. "Tommy just had his best at-bat performance of the season" becomes a coaching moment grounded in hard data.
+**Effort:** M (human ~1 day / CC ~30 min). **Priority:** P3.
+**Source:** D10 from 2026-05-13 brainstorm review.
+
+### MAINT-1. Split `formatters/table.rb` + `formatters/markdown.rb`
+
+**What:** Both files are at 499 LOC and growing. Pull per-command formatting (`#brief`, `#availability`, `#plan`, `#progress`, etc.) into per-command modules: `Formatters::Table::Brief`, `Formatters::Markdown::Brief`, etc. The top-level class becomes a thin dispatcher.
+**Why:** Adding new commands (watch, ask, parents) will push these past 700 LOC. The pain compounds.
+**Effort:** S (human ~half-day / CC ~20 min). **Priority:** P3 (do when one of the new feature PRs would otherwise push a file past 600 LOC).
+**Source:** 2026-05-13 brainstorm review architecture observation.
+
+### ACTIVE: D1+D2+D12 — `watch` (live-game pitch count + equity nudges + observability)
+
+**What:** macOS-notification-based silent sentinel for USSSA pitch count thresholds + in-game equity nudges. New `lib/gamechanger/commands/watch.rb` + `lib/gamechanger/watcher.rb` + `lib/gamechanger/notifier.rb`. Heartbeat file + stderr log for crash detection.
+**Why:** Mid-game decision support is where USSSA violations happen and youth arm injuries originate. The cathedral's anchor feature.
+**Effort:** human ~3 days / CC ~30 min. **Priority:** P1 (next active feature).
+**Depends on:** D11 (this PR — CLI refactor) — must land first.
+**Source:** D1+D2+D12 from 2026-05-13 CEO brainstorm. Design doc: `~/.gstack/projects/joshRpowell-gamechanger/joshuapowell-main-design-20260319-150720.md`.
+
+### ACTIVE: D4 — `parents` post-game text drafter
+
+**What:** `gc parents` outputs one short message per player after a game ("Tommy went 2-for-3 today, made a great play at SS"). Markdown-formatted, copy-paste-able to iMessage.
+**Why:** Eliminates 20-30 min of post-game work; high-frequency use case.
+**Effort:** human ~half-day / CC ~15 min. **Priority:** P2.
+**Depends on:** D11 (CLI refactor pattern).
+**Source:** D4 from 2026-05-13 CEO brainstorm.
+
+### ACTIVE: D3 — `ask` natural-language Q&A
+
+**What:** `gc ask 'how is Tommy doing?'` — LLM call (Anthropic or OpenAI) with structured data as context.
+**Why:** Conversational entry point over already-structured data; high leverage. Eliminates need to remember exact flag/option syntax.
+**Effort:** human ~1 day / CC ~30 min. **Priority:** P2 (after watch + parents).
+**Depends on:** D11 (CLI refactor pattern), provider selection at eng-review time.
+**Source:** D3 from 2026-05-13 CEO brainstorm.
