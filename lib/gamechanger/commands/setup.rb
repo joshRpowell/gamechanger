@@ -24,6 +24,7 @@ module Gamechanger
         shell.say 'Authenticating...', :cyan
         cfg = Config.new
         cfg.save(email: email, password: password)
+        cfg.clear_token  # invalidate any cached token from previous credentials before re-authenticating
 
         client = Client.new(config: cfg)
         authenticate_or_exit(client)

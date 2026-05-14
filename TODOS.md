@@ -135,6 +135,70 @@ Deferred work captured during /plan-eng-review and /plan-ceo-review on 2026-03-1
 
 ## Active backlog (deferred from /plan-ceo-review 2026-05-13)
 
+### BLOCKER: API-1 — Adapt to the rewritten GameChanger API (2026-05-14)
+
+**What:** Between v0.2.0 and now, GameChanger restructured large parts of the team-manager API. The CLI is non-functional against the live service. At minimum three breakages are confirmed via direct curl probes on 2026-05-14:
+
+1. **Auth requires 2FA code.** `POST /auth` with `{email, password}` returns 401. Web login now prompts for a 6-digit code sent to the account email *before* the password screen is accepted. The CLI must implement a multi-step auth flow (request code → user reads email → submit `{email, password, code}` or equivalent). See full breakdown below as "AUTH-1".
+2. **Boxscore endpoint is gone.** `GET /game-stream-processing/<game_id>/boxscore` returns 404 (verified with a known-valid `gc-token` for a real `game_id`). The replacement path is unknown — needs devtools capture of a completed game's load on web.gc.com. Likely candidates already eliminated via probe: `/games/<id>(/boxscore)`, `/events/<id>/boxscore`, `/scorekeeping/.../boxscore`, `/stats/games/<id>/boxscore`. `GET /events/<id>` returns 200 but only contains calendar fields (`event`, `pregame_data`) — no stats.
+3. **Schedule status semantics changed.** `/teams/<uuid>/schedule?fetch_place_details=true` still 200s, but for one user with 41 past games, **zero** are reported with `status: final|completed|ended`. All past games show `status: scheduled` or `canceled`, and the schedule items have no `result`/`score`/`stat` keys. Either status is now reported elsewhere (a separate "results" endpoint?), or the field has shifted to `event.status` semantics meaning something different. The CLI's `Syncer#normalize_status` and the "skip if cached and final" cache-skip logic assume the old semantics.
+
+**Why this is a blocker:** `setup`, `refresh`, and every command depending on synced data is non-functional. Stopgap (manual `gc-token` paste + restored team_id/team_slug in config) lets `Client#games` work, but `Syncer#run` still fails on the boxscore call for the first non-canceled past game.
+
+**Recovery path (in order):**
+
+1. **Comprehensive devtools capture session.** Log in via browser with DevTools open from start of session. Click through: (a) team home, (b) schedule, (c) a completed game's detail page, (d) the boxscore / stats view for that game, (e) pitcher stats, (f) player stats, (g) season stats. Save HAR file from devtools. From the HAR, derive: every API path the web app hits, plus request/response shapes. Update `docs/research/gc-api-notes.md` with a `## 2026-05 API surface` section.
+2. Rewrite `lib/gamechanger/client.rb` with the new endpoints and shapes.
+3. Rewrite `lib/gamechanger/syncer.rb` to match the new status semantics — figure out how "this game is done, fetch stats now" is signaled.
+4. Update `BoxscoreParser` and `BatterStatsParser` for new response shapes (likely field renames; possibly structural changes).
+5. Ship behind a major version bump (v1.0.0) — this is a breaking rewrite, and the cache schema may need an `api_version` column so post-upgrade users don't pollute old data.
+
+**Stopgap until shipped (gets some commands working ~1 hour at a time):**
+```
+# In DevTools, right-click gc-token value → Copy Value, then:
+echo "$(pbpaste)|9999999999" > ~/.gamechanger/session && chmod 600 ~/.gamechanger/session
+```
+This unblocks any command that hits only the schedule endpoint (e.g. `availability` for date math against scheduled games). `refresh` still fails on boxscore. The JWT expires in ~1 hour; redo as needed.
+
+**Effort:** human ~half-day devtools capture + ~2 days rewrite / CC ~2 hours once paths are mapped. **Priority:** P0 (blocker; gem fully unusable for primary use cases).
+**Depends on:** A live web.gc.com session for the user to do the capture from.
+**Source:** Discovered 2026-05-14 while attempting `gamechanger setup`. Each step revealed another breakage: 401 (auth) → 404 (boxscore) → empty-result schedule (status semantics). Related fix already shipped on 2026-05-14: `Setup` now calls `cfg.clear_token` before re-authenticating (closed a stale-token bug that masked the 2FA discovery).
+
+---
+
+#### AUTH-1 sub-detail — multi-step login implementation
+
+**What:** GameChanger has added 2FA to the web login: the password screen now also requires an email-delivered code. The CLI's `POST /auth` flow (sending `{email, password}` only) returns 401 across the board, so `setup`, `refresh`, and every authenticated command are non-functional unless the user manually pastes a `gc-token` JWT from browser devtools into `~/.gamechanger/session` (and that JWT expires in ~1 hour).
+
+Implementation work:
+1. Open Firefox/Chrome DevTools → Network → log in normally on web.gc.com. Capture the multi-step auth requests. Expect a "request code" call (likely `POST /auth/code` or similar with `{email}`), then the existing `POST /auth` now extended with `{email, password, code}` (or a separate `POST /auth/verify`).
+2. Update `lib/gamechanger/client.rb`:
+   - Add `request_code(email:)` calling the new endpoint.
+   - Update `authenticate` to: (a) trigger code send, (b) prompt the caller for the 6-digit code, (c) POST `{email, password, code}` to the verify endpoint.
+3. Update `lib/gamechanger/commands/setup.rb` to prompt for the email code between password entry and the `authenticate_or_exit` call. Add `--code` option / `GAMECHANGER_CODE` env var for non-interactive usage (though the user still has to read the email).
+4. Document the new flow in `docs/research/gc-api-notes.md` under a new "## Auth (2FA, 2026-05)" section with the captured endpoint shapes.
+5. Tests: add `client_spec.rb` cases for the new request-code call and the augmented `authenticate` flow. Add `setup_spec.rb` regression case that stubs the code prompt.
+6. **Related: `Config#save` is destructive when partial.** `lib/gamechanger/config.rb:24` rewrites the YAML from scratch using only the kwargs passed in, so `cfg.save(email:, password:)` wipes `team_id`, `team_slug`, and `season`. `Commands::Setup` calls save twice — once with creds, once with creds+team — and if auth fails between the two calls, the user is left with a half-broken config. Fix `save` to merge into existing data (read current YAML, overlay kwargs, write back), or split into `save_credentials` and `save_team` so neither destroys the other. Add a regression spec: save(email:, password:) on a config that already has team_id should preserve team_id. Surfaced 2026-05-14 during the auth-failure path.
+
+**Why:** Without this, the gem is dead. Every command path that hits the API will 401. The manual token-paste workaround (see "Stopgap" below) is brittle because the JWT lifespan is ~1 hour, forcing the user to redo browser devtools dance every hour they want to use the tool.
+
+**Stopgap until shipped:**
+```
+echo "$(pbpaste)|9999999999" > ~/.gamechanger/session && chmod 600 ~/.gamechanger/session
+```
+(Copy `gc-token` from any authenticated request in DevTools first.) Refresh approximately every hour.
+
+**Open questions to answer during devtools capture:**
+- Does the new flow expose a "remember device" / extended-session option (e.g., a longer-lived refresh token)? If yes, persist that so we don't trigger 2FA on every CLI invocation.
+- Does the existing `gc-device-id` we already generate factor into the trust decision? (If a device is "known" maybe 2FA is skipped — test by re-using device_id across logins.)
+- Is there a refresh-token endpoint we can hit silently before the JWT expires, to avoid re-prompting?
+
+**Effort:** human ~half-day investigation + ~1 day implementation / CC ~45 min total once endpoints are mapped. **Priority:** P0 (blocker; gem unusable without it).
+**Depends on:** Network capture of the new login flow (requires logging in via browser at least once with DevTools open).
+**Source:** Surfaced 2026-05-14 while attempting `gamechanger setup` — every attempt 401s; browser login confirms 2FA code is now mandatory. Related fix already shipped: setup now calls `cfg.clear_token` before re-authenticating (see commit on 2026-05-14 — closed a separate stale-token bug that masked this discovery).
+
+---
+
 ### CEO-13. `journal` — coaching notes capture + pattern surfacing
 
 **What:** New `gc note "told Tommy to relax at the plate" --player Tommy` command writes a timestamped note attached to a player/game/practice. New `gc journal` shows recent notes grouped by player; surfaces patterns over time.

@@ -57,6 +57,33 @@ RSpec.describe Gamechanger::Commands::Setup do
     end
   end
 
+  describe '#call (regression: stale session token)' do
+    # Bug: re-running `gamechanger setup` after credentials change would
+    # reuse the stale cached session token, causing the discover_team
+    # call to 401 even when the new password was correct.
+    it 'clears the cached session token before authenticating' do
+      cfg    = instance_double(Gamechanger::Config)
+      client = instance_double(Gamechanger::Client)
+      allow(Gamechanger::Config).to receive(:new).and_return(cfg)
+      allow(Gamechanger::Client).to receive(:new).and_return(client)
+      allow(cfg).to receive(:save)
+      allow(cfg).to receive(:clear_token)
+      allow(client).to receive(:authenticate)
+      allow(client).to receive(:teams).and_return(
+        [{ 'id' => 't1', 'name' => 'Mustangs', 'slug' => 'abc' }]
+      )
+
+      cmd = described_class.new(
+        options: { email: 'a@b.com', password: 'pw' },
+        shell:   shell
+      )
+      cmd.call
+
+      expect(cfg).to have_received(:clear_token).ordered
+      expect(client).to have_received(:authenticate).ordered
+    end
+  end
+
   describe 'discover_team' do
     let(:client) { instance_double(Gamechanger::Client) }
 
