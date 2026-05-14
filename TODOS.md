@@ -211,3 +211,65 @@ Deferred work captured during /plan-eng-review and /plan-ceo-review on 2026-03-1
 **Effort:** human ~1 day / CC ~30 min. **Priority:** P2 (after watch + parents).
 **Depends on:** D11 (CLI refactor pattern), provider selection at eng-review time.
 **Source:** D3 from 2026-05-13 CEO brainstorm.
+
+---
+
+## Go port WIP — checkpoint shipped 2026-05-14 (branch `experiment/cli-printing-press`)
+
+The Go port replaces ~30% of the Ruby gem (transport, storage, sync, basic commands). The analytics layer and 7 of 11 commands are still in Ruby. Once analytics ships in Go and the binary survives a real season of in-game use, the Ruby gem will be retired.
+
+### GO-1. Port analytics layer to Go
+
+**What:** Port `pitch_rules.rb`, `lineup_optimizer.rb`, `development_arc.rb`, `pre_game_brief.rb` into `internal/analytics/{pitch,lineup,development}` and `internal/brief`. Pure-Go domain logic; no I/O. Each Ruby Struct becomes a Go struct; class methods become package functions.
+**Why:** Without analytics the Go binary can only sync — it cannot brief. The analytics ARE the product; the Go port is incomplete until they land.
+**Effort:** human ~1 day / CC ~30 min. **Priority:** P1 (next Go port milestone).
+**Depends on:** Nothing — pure-Go work against the row types already defined in `internal/store/types.go`.
+**Source:** Deferred at /ship checkpoint 2026-05-14 after smoke-test passed against live API.
+
+### GO-2. Port formatters to Go
+
+**What:** Port `formatters/{table,json,markdown}.rb` `Brief()` methods (the only formatter surface needed for the `brief` command) into `internal/format`. Use `github.com/olekukonko/tablewriter` for table output to match the Ruby version's `terminal-table` aesthetic.
+**Why:** The `brief` command's value is in its formatted output. Without ported formatters, the Go binary cannot produce the brief.
+**Effort:** human ~half-day / CC ~20 min. **Priority:** P1 (after GO-1).
+**Depends on:** GO-1.
+**Source:** Deferred at /ship checkpoint 2026-05-14.
+
+### GO-3. Port remaining 7 commands to Go
+
+**What:** Wire Cobra commands for `brief` (default), `plan`, `lineup`, `equity`, `hitting`, `progress`, `availability`, `pitches`. Each follows the same shape as the already-ported `refresh` command: load config → open store → query → format → print.
+**Why:** Achieves full Ruby parity. Required before the Ruby gem can be retired.
+**Effort:** human ~1 day / CC ~30 min. **Priority:** P1 (after GO-2).
+**Depends on:** GO-1, GO-2.
+**Source:** Deferred at /ship checkpoint 2026-05-14.
+
+### GO-4. Unit tests for `internal/client` and `internal/commands`
+
+**What:** Add `client_test.go` (mock `http.RoundTripper` to assert request shape, auth retry behavior, `ErrBoxscoreNotFound` mapping) and per-command tests using Cobra's `SetArgs`/`SetOut` plumbing.
+**Why:** Currently these packages have 0% unit coverage. The `sync` integration test exercises both end-to-end, but per-package mocks catch edge cases (network errors, malformed JSON, retry exhaustion) that the integration test doesn't.
+**Effort:** human ~half-day / CC ~20 min. **Priority:** P2.
+**Depends on:** Nothing.
+**Source:** Test coverage gap identified at /ship checkpoint 2026-05-14.
+
+### GO-5. Resolve gc.com `/auth` signing — or commit to `auth import` as the path
+
+**What:** Two options. (a) Reverse-engineer the `gc-signature`/`gc-timestamp` HMAC scheme by inspecting web.gc.com's JS bundle, then implement the multi-step (client-auth → user-auth-with-code) login in `internal/client` and the Ruby `Client`. (b) Accept that `auth import` (paste-from-browser token) is the supported flow, document it as such, and remove the broken `setup` interactive flow from both implementations.
+**Why:** Today neither CLI can authenticate via username/password. The Ruby `setup` path is broken and the Go `setup` path inherits the same bug. `auth import` works but the user has to copy a token from DevTools every hour. Picking one path closes the auth story.
+**Effort:** (a) human ~1-3 days reverse engineering + CC ~1 hour wiring / (b) human ~30 min + CC ~10 min. **Priority:** P2.
+**Depends on:** Nothing.
+**Source:** Surfaced during /ship checkpoint 2026-05-14 when both CLIs 401'd. Documented in CHANGELOG Unreleased.
+
+### GO-6. Release packaging for the Go binary
+
+**What:** Add `.github/workflows/release.yml` that builds the Go binary for darwin/arm64 + darwin/amd64 + linux/amd64 on tag push and attaches artifacts to the GitHub release. Optionally homebrew tap.
+**Why:** Once the port reaches parity (after GO-1..GO-3) users need a way to install it. Today the only install path is `go install github.com/joshrpowell/gamechanger-cli/cmd/gamechanger@latest` which assumes the user has Go on PATH.
+**Effort:** human ~half-day / CC ~30 min. **Priority:** P3 (only matters once Go reaches parity).
+**Depends on:** GO-1, GO-2, GO-3.
+**Source:** Distribution gap identified at /ship checkpoint 2026-05-14.
+
+### GO-7. Decide Go module path
+
+**What:** Current module path is `github.com/joshrpowell/gamechanger-cli` but the repo is `github.com/joshRpowell/gamechanger` (no `-cli` suffix, capital R in `joshRpowell`). Decide whether to (a) rename the module to match the repo, (b) move the Go code to a sub-repo, or (c) keep the mismatch and document it.
+**Why:** `go install` will fail until the module path matches the repo path. Today the only install path is `go build` from a local checkout.
+**Effort:** human ~15 min / CC ~5 min. **Priority:** P3.
+**Depends on:** GO-6 (only matters once `go install` is the install path).
+**Source:** Identified at /ship checkpoint 2026-05-14.
