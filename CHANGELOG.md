@@ -35,6 +35,27 @@ A parallel Go implementation of the CLI is being developed on `experiment/cli-pr
 
 **Goal:** if the analytics-and-formatter port lands cleanly and the Go binary survives a real season of use, retire the Ruby gem.
 
+### Added — Verify-parity harness pilot (U1, AI-loop gate)
+
+A Ruby-versus-Go behavioral parity harness for the analytics port — pilot stage only. U1 is the gate that decides whether the full harness (U3-U6) gets built. The pilot ports `development_arc.rb` to Go via an AI-driven loop and diffs the JSON output against the real Ruby implementation. **Gate result: PASS in 2 iterations.**
+
+**Shipped in this checkpoint:**
+- **Ruby side, `GAMECHANGER_HOME` env var** — `Config.home_dir` / `.config_file_path` / `.session_file_path` and `Storage#data_dir` now consult `GAMECHANGER_HOME` with a `~/.gamechanger` fallback. Lets the harness point Ruby and Go at the same fixture directory. Legacy `CONFIG_DIR` / `CONFIG_FILE` / `SESSION_FILE` / `DATA_DIR` constants preserved for back-compat. +14 rspec cases including regression guards on default-path behavior; `bundle exec rspec` = 586 examples, 0 failures.
+- **`internal/analytics/arc/`** — Go port of `lib/gamechanger/development_arc.rb` (144 LOC source → 179 LOC Go). `PlayerArc` struct + `BuildSummary`, `BuildPlayer`, `SparklineFor`, faithful narrative-archetype branching (peaking / strong starter / finding their groove / steady / building) and trend indicators (↑ / ↓ / →). Optional fields use `*float64` / `*int` / `*string` so JSON null marshals where Ruby emits nil. 25 Go table tests translate `spec/gamechanger/development_arc_spec.rb`.
+- **`cmd/progress-json/main.go`** — pilot-only Go entry point. Reads the gamechanger SQLite store and emits JSON matching Ruby's `Formatters::Json#progress` shape. Includes a `rubyFloat` custom marshaler so whole-number floats serialize as `0.0` (matching Ruby's `Float#to_s`) instead of Go's default `0`.
+- **`bin/pilot-diff`** — shell harness. Runs Ruby `progress --format json` + Go `progress-json` against the same `GAMECHANGER_HOME`, canonicalizes both via `jq -S`, diffs them, exits 0 / 2 / 3 by outcome. Designed for AI-loop iteration: each per-iteration diff field count is the gate trajectory signal.
+- **Plan, brainstorm, ideation docs** — `docs/plans/2026-05-14-001-feat-verify-parity-harness-plan.md` (5-unit plan post-eng-review), `docs/brainstorms/2026-05-14-verify-parity-harness-requirements.md` (R1-R14, AE1-AE6), and `docs/ideation/2026-05-14-gamechanger-go-port-direction-ideation.md` (Go-port strategic framing). Plan went through ce-doc-review (19 fixes, 5-persona pass), plan-eng-review (scope reduction 8→5 units; 7 issues fixed), and this `/ship`.
+- **TODOS.md** — `GO-8 Anchor-fixture regeneration cadence + procedure` for future U3/U4 work.
+
+**Pilot gate trajectory** (the load-bearing signal):
+- Iteration 0 (pre-impl): all Go table tests undefined → build fails
+- Iteration 1 (full Ruby→Go port): table tests PASS; pilot-diff = 1 drifted field (Go `json.Marshal` emits `0` for `0.0` vs Ruby `0.0`)
+- Iteration 2 (`rubyFloat` custom marshaler): pilot-diff = **0 drifted lines** — PARITY-PASS
+
+Gate criteria: monotonic reduction in drift, within iteration budget of 5. Both satisfied.
+
+**What this pilot did NOT validate** (intentional, per the plan's "bet" framing): convergence on `lineup_optimizer` (multi-pass ranking) or `tournament_planner` (stateful projection) — those are 3.6× larger and have more cross-field interaction. U3-U6 build is now justified but not committed; pause for user decision before continuing.
+
 ## [0.2.0] - 2026-05-13
 
 ### Changed
