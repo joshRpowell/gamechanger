@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# bin/pilot-diff — verify-parity harness pilot (U1 of the verify-parity plan)
+#
+# Diffs Ruby `gamechanger progress --format json` against Go `progress-json`
+# for the same fixture directory (set via GAMECHANGER_HOME). Both stacks read
+# the SAME SQLite cache.db; only the analytics layer differs.
+#
+# Exit codes:
+#   0 — byte-identical canonical JSON (parity-pass)
+#   2 — drift (jq-canonicalized diff non-empty)
+#   3 — Ruby missing / build failure / environment issue
+#
+# Usage:
+#   bin/pilot-diff                                # uses ~/.gamechanger/cache.db
+#   GAMECHANGER_HOME=/tmp/fix bin/pilot-diff      # uses /tmp/fix/cache.db on both sides
+#
+# Per-iteration diff size for U1 gate trajectory:
+#   the diff field count printed at end is the gate signal.
+#   each AI-loop iteration should reduce this count vs the prior iteration.
+
+set -u
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
+: "${GAMECHANGER_HOME:=$HOME/.gamechanger}"
+: "${GC_SEASON:=$(date +%Y)}"
+export GAMECHANGER_HOME GC_SEASON
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+# Sanity checks.
+command -v jq >/dev/null    || { echo "pilot-diff: jq not on PATH" >&2; exit 3; }
+command -v diff >/dev/null  || { echo "pilot-diff: diff not on PATH" >&2; exit 3; }
+command -v bundle >/dev/null || { echo "pilot-diff: bundle not on PATH" >&2; exit 3; }
+command -v go >/dev/null    || { echo "pilot-diff: go not on PATH" >&2; exit 3; }
+
+echo "pilot-diff: GAMECHANGER_HOME=$GAMECHANGER_HOME  GC_SEASON=$GC_SEASON"
+
+# Ruby side.
+echo "pilot-diff: running Ruby progress --format json …"
+if ! bundle exec exe/gamechanger progress --format json > "$TMP/ruby.json" 2> "$TMP/ruby.err"; then
+  echo "pilot-diff: Ruby invocation failed (exit $?):" >&2
+  cat "$TMP/ruby.err" >&2
+  exit 3
+fi
+
+# Go side.
+echo "pilot-diff: running Go progress-json …"
+if ! go run ./cmd/progress-json > "$TMP/go.json" 2> "$TMP/go.err"; then
+  echo "pilot-diff: Go invocation failed (exit $?):" >&2
+  cat "$TMP/go.err" >&2
+  exit 3
+fi
+
+# Canonicalize both via jq (sorted keys, compact-then-pretty) so whitespace
+# is not the failure mode.
+jq -S . "$TMP/ruby.json" > "$TMP/ruby.canonical.json"
+jq -S . "$TMP/go.json"   > "$TMP/go.canonical.json"
+
+# Field-level diff count = number of `<` or `>` lines in unified diff
+# minus context. Approximation: total diff lines / 2.
+DIFF_OUT=$(diff -u "$TMP/ruby.canonical.json" "$TMP/go.canonical.json" || true)
+FIELD_DRIFT=$(printf '%s\n' "$DIFF_OUT" | grep -cE '^[<>]' || true)
+LINE_DRIFT=$((FIELD_DRIFT / 2))
+
+if [ -z "$DIFF_OUT" ]; then
+  echo "pilot-diff: PARITY-PASS  (0 drifted lines)"
+  exit 0
+fi
+
+echo "pilot-diff: DRIFT  (~$LINE_DRIFT drifted lines)"
+echo "── diff (truncated to 200 lines) ────────────────────────────────────"
+printf '%s\n' "$DIFF_OUT" | head -200
+echo "── raw outputs at ──"
+echo "   Ruby: $TMP/ruby.json"
+echo "   Go:   $TMP/go.json"
+# Don't clean up trap on drift — let user inspect. Move TMP out of /tmp so trap doesn't kill it.
+LOG=/tmp/pilot-diff-$(date +%Y%m%d-%H%M%S)
+mv "$TMP" "$LOG"
+trap - EXIT
+echo "   Preserved at: $LOG"
+exit 2
