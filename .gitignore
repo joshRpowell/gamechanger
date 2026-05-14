@@ -2,3 +2,5 @@ coverage/
 .gstack/
 tmp/bootsnap/
 .claude/settings.local.json
+progress-json
+/gamechanger

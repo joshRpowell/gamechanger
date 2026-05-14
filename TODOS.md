@@ -273,3 +273,11 @@ The Go port replaces ~30% of the Ruby gem (transport, storage, sync, basic comma
 **Effort:** human ~15 min / CC ~5 min. **Priority:** P3.
 **Depends on:** GO-6 (only matters once `go install` is the install path).
 **Source:** Identified at /ship checkpoint 2026-05-14.
+
+### GO-8. Anchor-fixture regeneration cadence + procedure (verify-parity harness)
+
+**What:** Document in `internal/parity/testdata/README.md` (1) the regeneration command (`go run ./cmd/anonymize-fixture --source ~/.gamechanger/cache.db --out internal/parity/testdata/cache-anchor.db`), (2) the expected cadence (regenerate after any change to `internal/store/migrations.go` that adds/renames columns the analytics modules read, OR when `go test ./internal/parity/...` fails with "no such column"), and (3) how to verify the new fixture preserves the threat model (run the U3 falsification check after each regen).
+**Why:** The committed anchor fixture goes stale as Ruby's Storage schema evolves. Today there is no documented signal that says "regenerate now" — first failure mode is a confusing "no such column: equity_score" from go-cmp during a CI run or local `go test`. A two-paragraph README closes this loop.
+**Effort:** human ~30 min / CC ~10 min. **Priority:** P3 (only matters once the verify-parity harness ships — see 2026-05-14 plan).
+**Depends on:** Verify-parity harness shipping (U4 fixture exists).
+**Source:** Surfaced during /plan-eng-review on the verify-parity harness plan, 2026-05-14.
