@@ -31,7 +31,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, next_scheduled_game: nil, close: nil)
         )
         expect { described_class.start(['availability']) }
-          .to output(/gamechanger pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end
@@ -52,7 +52,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, next_scheduled_game: nil, close: nil)
         )
         expect { described_class.start(['plan']) }
-          .to output(/gamechanger pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end
@@ -108,7 +108,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, season_batting_summary: [], close: nil)
         )
         expect { described_class.start(['hitting']) }
-          .to output(/gamechanger pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end
@@ -121,7 +121,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, next_scheduled_game: nil, close: nil)
         )
         expect { described_class.start(['lineup']) }
-          .to output(/gamechanger pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end
@@ -142,7 +142,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, player_participation: [], close: nil)
         )
         expect { described_class.start(['equity']) }
-          .to output(/gamechanger pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end
@@ -166,7 +166,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, all_player_development_summary: [], close: nil)
         )
         expect { described_class.start(['progress']) }
-          .to output(/gc pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end
@@ -201,7 +201,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, next_scheduled_game: nil, close: nil)
         )
         expect { described_class.start(['brief']) }
-          .to output(/pitches --refresh/).to_stdout
+          .to output(/gamechanger refresh/).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end

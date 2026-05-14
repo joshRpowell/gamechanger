@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-05-13
+
+### Changed
+- Refactored CLI command bodies into dedicated `Commands::` classes (one per user-facing command). `lib/gamechanger/cli.rb` is now a 90-line Thor routing layer; command logic, error handling, and command-specific helpers live in `lib/gamechanger/commands/`.
+- `Commands::Base` owns shared infrastructure: 5-exception rescue chain (`run_command`), storage open/close (`with_storage`), config loading (`load_config!`), formatter selection (`build_formatter`), and the shared `resolve_target` date resolver.
+- Stale "Run `gamechanger pitches --refresh`" error messages updated to point at the top-level `gamechanger refresh` command introduced in v0.1.1.
+
+### Added
+- Per-command unit specs under `spec/gamechanger/commands/` — direct invocation of each `Commands::X` class with a doubled shell, covering command-specific helpers and edge cases.
+
 ## [0.1.1] - 2026-03-19
 
 ### Added
