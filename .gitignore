@@ -4,3 +4,4 @@ tmp/bootsnap/
 .claude/settings.local.json
 progress-json
 /gamechanger
+/anonymize-fixture
