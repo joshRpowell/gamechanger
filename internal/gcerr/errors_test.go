@@ -12,6 +12,7 @@ func TestSentinelClassification(t *testing.T) {
 		sentinel error
 	}{
 		{"auth", Authf("bad creds %d", 1), ErrAuth},
+		{"auth insufficient", AuthInsufficientf("forbidden for team %s", "abc"), ErrAuthInsufficient},
 		{"network", Networkf("timeout"), ErrNetwork},
 		{"config", Configf("missing"), ErrConfig},
 		{"api shape", APIShapef("unexpected"), ErrAPIShape},

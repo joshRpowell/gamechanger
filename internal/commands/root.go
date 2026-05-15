@@ -116,6 +116,11 @@ func exitCodeFor(err error) int {
 	switch {
 	case errors.Is(err, gcerr.ErrAuth):
 		return 2
+	case errors.Is(err, gcerr.ErrAuthInsufficient):
+		// Distinct from ErrAuth — token is valid, permissions are not.
+		// Mapped separately so users see "check team access" not
+		// "re-authenticate."
+		return 5
 	case errors.Is(err, gcerr.ErrNetwork):
 		return 3
 	case errors.Is(err, gcerr.ErrAPIShape):
