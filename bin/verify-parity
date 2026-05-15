@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# bin/verify-parity — pass-through wrapper for `gamechanger verify` (U6).
+#
+# All validation lives in internal/commands/verify.go (allowlist, fixture
+# path scope, env scrubbing, typed exit codes). This script exists only so
+# `bin/verify-parity progress` reads naturally in scripts and CI snippets;
+# it adds no logic of its own.
+
+exec gamechanger verify "$@"

@@ -51,6 +51,7 @@ func NewRoot(stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newSetupCmd(opts))
 	root.AddCommand(newRefreshCmd(opts))
 	root.AddCommand(newAuthCmd(opts))
+	root.AddCommand(newVerifyCmd(opts))
 	return root
 }
 
@@ -87,19 +88,31 @@ func (o *rootOpts) configDirOrDefault() (string, error) {
 }
 
 // Execute is the package entry point used by cmd/gamechanger/main.go.
+//
+// A *parityExit error carrying an empty message signals "verdict already
+// printed to stdout" — we suppress the `gamechanger:` prefix so verify's
+// human/JSON output stays clean. Errors with a non-empty message still get
+// the prefix (preserves behavior for setup, refresh, auth).
 func Execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	root := NewRoot(stdout, stderr)
 	root.SetArgs(args)
 	if err := root.ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(stderr, "gamechanger:", err.Error())
+		if msg := err.Error(); msg != "" {
+			fmt.Fprintln(stderr, "gamechanger:", msg)
+		}
 		return exitCodeFor(err)
 	}
 	return 0
 }
 
 // exitCodeFor maps a sentinel error category to a stable POSIX-ish exit
-// code, mirroring the Ruby Commands::Base rescue chain.
+// code, mirroring the Ruby Commands::Base rescue chain. *parityExit takes
+// precedence — its Code() carries the typed verify-parity exit code.
 func exitCodeFor(err error) int {
+	var pex *parityExit
+	if errors.As(err, &pex) {
+		return pex.Code()
+	}
 	switch {
 	case errors.Is(err, gcerr.ErrAuth):
 		return 2
