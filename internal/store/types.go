@@ -81,3 +81,34 @@ type SyncResult struct {
 	Outings int `json:"outings"`
 	AtBats  int `json:"at_bats"`
 }
+
+// ----- Scout Phase 1a (U2) types -----
+
+// OpposingTeam is a row in the opposing_teams table — a team the user has
+// scouted at least once. team_uuid is the GameChanger team identifier.
+type OpposingTeam struct {
+	TeamUUID      string
+	TeamName      string
+	LastFetchedAt string // ISO 8601 UTC, e.g. "2026-05-15T18:00:00Z"
+}
+
+// OpposingPlayer is a row in the opposing_roster table. JerseyNumber and
+// Position are nullable because the GameChanger roster endpoint can return
+// either field missing for some players (per U1 discovery).
+type OpposingPlayer struct {
+	TeamUUID      string
+	PlayerName    string
+	JerseyNumber  sql.NullString
+	Position      sql.NullString
+	LastFetchedAt string
+}
+
+// RecognitionMarker is what the cross-reference query in U6 surfaces when an
+// opposing-roster player name matches a player in the user's own-team game
+// history. In Phase 1a the marker carries only date + opponent; score and
+// W/L derivation defer to Phase 1b once boxscore score-field shape is
+// confirmed.
+type RecognitionMarker struct {
+	GameDate string // ISO date YYYY-MM-DD
+	Opponent string // team name from games.opponent (free-text)
+}

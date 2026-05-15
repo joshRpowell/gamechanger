@@ -57,6 +57,35 @@ var migrations = []struct {
 		CREATE INDEX idx_gbs_batter ON game_batter_stats (batter_name);
 		CREATE INDEX idx_gbs_game   ON game_batter_stats (game_id);
 	`},
+	// v4 — Scout Phase 1a. Adds two additive tables for caching opposing-team
+	// roster data fetched on demand by `gamechanger scout`. Go-only: the Ruby
+	// gem does not gain scouting, so v4+ are not mirrored in lib/gamechanger.
+	//
+	// PII posture: opposing_roster persists minors' names. cache.db is
+	// user-local at ~/.gamechanger/ — no cloud sync, no automatic retention
+	// TTL in v4. Phase 1b revisits retention before adding additional
+	// opposing-team tables (opposing_coaches, opposing_games).
+	//
+	// The case-insensitive index on player_name powers the cross-reference
+	// query in internal/scout (U6): `LOWER(player_name) = LOWER(?)` joined
+	// against game_batter_stats / game_pitcher_stats from own-team history.
+	{4, `
+		CREATE TABLE opposing_teams (
+			team_uuid       TEXT PRIMARY KEY,
+			team_name       TEXT NOT NULL,
+			last_fetched_at TEXT NOT NULL
+		);
+		CREATE TABLE opposing_roster (
+			team_uuid       TEXT NOT NULL REFERENCES opposing_teams(team_uuid) ON DELETE CASCADE,
+			player_name     TEXT NOT NULL,
+			jersey_number   TEXT,
+			position        TEXT,
+			last_fetched_at TEXT NOT NULL,
+			PRIMARY KEY (team_uuid, player_name)
+		);
+		CREATE INDEX idx_opposing_roster_name_lower
+			ON opposing_roster (LOWER(player_name));
+	`},
 }
 
 func (s *Store) migrate(ctx context.Context) error {
