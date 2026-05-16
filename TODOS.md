@@ -150,13 +150,30 @@ Deferred work captured during /plan-eng-review and /plan-ceo-review on 2026-03-1
 **Depends on:** Validating which drill recs actually work — needs a few real practice plans to compare against.
 **Source:** D6 from 2026-05-13 brainstorm review.
 
-### CEO-15. `scout` — opposing team pre-game data
+### ~~CEO-15. `scout` — opposing team pre-game data~~ ✅ (partial — shipped as Fork A)
 
-**What:** Pulls opposing team box scores from GC API (already in boxscore responses), aggregates pitcher tendencies + hitter splits. `gc scout --opponent 'Yankees'` outputs a competitive scouting brief.
-**Why:** Turns existing data into a competitive prep tool, not just a self-analysis tool.
-**Effort:** L (human ~2 days / CC ~1 hour). **Priority:** P3.
-**Depends on:** API probe + values check (scouting at youth level).
-**Source:** D7 from 2026-05-13 brainstorm review.
+**Status:** Phase 1a shipped on `feat/scout-phase-1a` (PR #4) as `gamechanger scout <opponent>` — matchup-history view (date / score / W/L / home-away). U1 discovery found the web/desktop API doesn't expose opposing-team rosters or pitcher tendencies, so the original "competitive scouting brief" framing pivoted to matchup history against confirmed endpoints. See `docs/research/gc-scout-api-notes.md` for the full discovery + 3-fork analysis. Follow-ups split into **GO-9, GO-10, GO-11** below.
+
+### GO-9. Promote `/game-summaries` to `progress` / `brief` for W/L context
+
+**What:** Scout's U1 surfaced `/teams/{uuid}/game-summaries` returning per-game `owning_team_score` + `opponent_team_score` + `opponent_id` in a single API call. Weave this into existing `progress` and `brief` outputs so the developmental arc renders alongside W/L context ("strong starter, 8-4 in last 12 games"). Strictly additive — no breaking changes to existing output.
+**Why:** The data is one call away and is qualitatively the most-requested missing context for a coach reviewing player development trends in-season.
+**Effort:** M (human ~half-day / CC ~30 min). **Priority:** P2.
+**Depends on:** scout PR #4 merged (so `client.GameSummaries` is on `main`).
+
+### GO-10. Scout TUI navigator (Phase 2)
+
+**What:** Interactive TUI on top of the Phase 1a data layer. Navigate teams → schedule → game → opposing team and show matchup history per-opponent with keyboard shortcuts. Cache-age indicator. Read-only.
+**Why:** The brainstorm's original B-first sequencing — prove the data layer with `scout`, then add the TUI on top.
+**Effort:** L (human ~2-3 days / CC ~2 hours). **Priority:** P3.
+**Depends on:** GO-9 (or scout PR #4 standalone). TUI framework selection (Bubble Tea vs tcell vs gocui) belongs to the Phase 2 plan.
+
+### GO-11. Fork B — Mobile-app capture for opposing roster recognition
+
+**What:** The original brainstorm AE2 — "scan opposing roster for familiar names" — requires opposing-team player data the web/desktop API doesn't expose. Mobile app likely has it. Mitmproxy + cert-pinning bypass on a phone to capture mobile-app traffic, find the opposing-roster endpoints, and unblock the recognition workflow. Larger lift, uncertain payoff.
+**Why:** Original product workflow. Worth pursuing if matchup-history scout proves valuable and users want deeper recognition.
+**Effort:** L+ (human ~half-day initial setup + research / CC trivial after). **Priority:** P4 (defer pending scout adoption signal).
+**Depends on:** scout PR #4 in active use; observed value signal worth deeper investment.
 
 ### CEO-16. Morning auto-brief — launchd job delivers brief to phone
 

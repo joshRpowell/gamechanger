@@ -6,6 +6,13 @@ new behavior or confirm uncertain shapes.
 
 **Base URL:** `https://api.team-manager.gc.com`
 
+**See also:** [`gc-scout-api-notes.md`](./gc-scout-api-notes.md) — scout-specific
+endpoint inventory documented during U1 of the scout Phase 1a plan
+(2026-05-15). Covers `/teams/{uuid}/players`, `/teams/{uuid}/users`,
+`/teams/{uuid}/opponent/{opp_uuid}`, `/teams/{uuid}/game-summaries`, and
+the discovery that the web/desktop API does not expose opposing-team
+rosters (only the mobile app does).
+
 ---
 
 ## Authentication

@@ -35,6 +35,30 @@ A parallel Go implementation of the CLI is being developed on `experiment/cli-pr
 
 **Goal:** if the analytics-and-formatter port lands cleanly and the Go binary survives a real season of use, retire the Ruby gem.
 
+### Added — Pre-game scout (Phase 1a, Fork A: matchup-history)
+
+`gamechanger scout <opponent>` — show matchup history against an opponent. Given an opponent name (case-insensitive) or UUID, returns every prior game with score, W/L, home/away, sorted DESC by date. TTY-aware output: colored at terminal, plain copy-paste text when piped (cap 500 chars for messaging into a coaches' group thread). `--format json` for AI/agent pipelines. `--refresh` bypasses the 24h opposing-team metadata cache. `--limit N` caps last N games.
+
+**U1 discovery (the gate)** caught that the GameChanger web/desktop API does NOT expose opposing-team rosters — the original brainstorm's "scan opposing roster for familiar names" workflow can't ship against this API. Only the mobile app has those endpoints. The plan was reshaped to matchup-history scout (Fork A) which ships against confirmed endpoints. Full discovery write-up in `docs/research/gc-scout-api-notes.md`.
+
+**Bonus discovery:** `/teams/{uuid}/game-summaries` returns per-game `owning_team_score` + `opponent_team_score` + `opponent_id` in a single call. Much cleaner score-data source for a future `progress`/`brief` enrichment than the boxscore-parsing path the original plan assumed.
+
+**Shipped:**
+- Migration v4: `opposing_teams` + `opposing_roster` tables (Go-only, additive). `opposing_roster` unused under Fork A; kept for Fork B (mobile-app capture) revival.
+- `gcerr.ErrAuthInsufficient` sentinel for distinguishing 403 (auth scope) from 401 (token expired).
+- `internal/client/scout.go` — `GameSummaries` + `OpponentDetail` methods, defensive parsing, `ErrTeamNotFound` sentinel.
+- `internal/scout/` orchestrator — W/L/T outcome derivation, 24h cache TTL, injectable clock + client for tests.
+- `internal/store/scout_queries.go` — `UpsertOpposingTeam`, `FindOpposingTeamByUUID`, `FindOpposingTeamByName` (case-insensitive, most-recent on collision). Also `CrossReferenceRoster` (kept for Fork B but unused under Fork A).
+- `internal/format/scout.go` — TTY-aware renderer + JSON encoder.
+- `internal/commands/scout.go` — cobra wiring with `scoutExit` typed exit pattern (6 distinct codes per failure mode).
+
+**Tests:** 201 across 18 packages, no regressions.
+
+**Deferred:**
+- Promote `/game-summaries` to existing `progress`/`brief` for W/L context in own-team analytics (GO-9).
+- Phase 2 — TUI navigator (GO-10).
+- Fork B — mobile-app capture to unblock opposing-roster recognition (original AE2) — requires mitmproxy + cert override (GO-11).
+
 ### Added — Verify-parity harness pilot (U1, AI-loop gate)
 
 A Ruby-versus-Go behavioral parity harness for the analytics port — pilot stage only. U1 is the gate that decides whether the full harness (U3-U6) gets built. The pilot ports `development_arc.rb` to Go via an AI-driven loop and diffs the JSON output against the real Ruby implementation. **Gate result: PASS in 2 iterations.**
