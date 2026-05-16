@@ -598,7 +598,7 @@ Each phase leaves the repo in a consistent state. Stopping at any phase is fine.
 
 ### Security / PII
 
-- **[E1] UUIDs in `cmd/scout-probe/main.go` git history** (added `15564ee`, deleted `d36af56`). Squash/rewrite branch history vs accept-as-risk depends on repo visibility. Public → P0; private → accepted with documented risk.
+- **[E1] UUIDs in `cmd/scout-probe/main.go` git history** (added `15564ee`, deleted `d36af56`). **Resolved 2026-05-16: accept-as-leaked, sanitize forward.** Repo confirmed public (`joshRpowell/gamechanger`). UUIDs are opaque GameChanger identifiers (not credentials) but identify the user's youth team. History rewrite was considered but rejected: mirrors and existing clones may already have the data, and the threat model is correlation/inference rather than direct exploit. Forward mitigation landed in `CLAUDE.md` "Working with the GameChanger API" — prohibits hardcoded UUIDs/opponent IDs in committed code going forward, requires env-var reads for probe binaries.
 - **[E2] Minors'-PII consent model + deletion path.** Add a `scout --clear-cache <uuid>` (and/or `--clear-all`) command before Phase 1b's `opposing_coaches` / `opposing_games` tables compound the PII surface. COPPA/CPRA territory.
 
 ### Phase 1a behaviors to re-examine in 1b
