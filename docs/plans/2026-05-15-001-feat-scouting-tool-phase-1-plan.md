@@ -2,7 +2,8 @@
 date: 2026-05-15
 type: feat
 origin: docs/brainstorms/2026-05-15-scouting-tui-requirements.md
-status: active
+status: completed
+completed_date: 2026-05-16
 phase: 1a
 pivot: matchup-history-scout
 pivot_date: 2026-05-15
