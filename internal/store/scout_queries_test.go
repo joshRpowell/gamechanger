@@ -259,3 +259,80 @@ func TestCrossReferenceRoster_EmptyOwnTeamCache(t *testing.T) {
 		t.Errorf("empty cache should yield no markers; got %d", len(markers["John Smith"]))
 	}
 }
+
+// ─── Opposing-team cache tests (U6, Fork A) ────────────────────────────────
+
+func TestUpsertOpposingTeam_InsertAndUpdate(t *testing.T) {
+	s := newMemStore(t)
+	ctx := context.Background()
+	team := OpposingTeam{TeamUUID: "opp-1", TeamName: "Eagles 12U", LastFetchedAt: "2026-05-15T18:00:00Z"}
+	if err := s.UpsertOpposingTeam(ctx, team); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	got, err := s.FindOpposingTeamByUUID(ctx, "opp-1")
+	if err != nil || got == nil {
+		t.Fatalf("FindOpposingTeamByUUID: %v / nil=%v", err, got == nil)
+	}
+	if got.TeamName != "Eagles 12U" {
+		t.Errorf("first read TeamName = %q", got.TeamName)
+	}
+	// Update: same UUID, new name + timestamp.
+	if err := s.UpsertOpposingTeam(ctx, OpposingTeam{
+		TeamUUID: "opp-1", TeamName: "Eagles 12U Blue", LastFetchedAt: "2026-05-15T19:00:00Z",
+	}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	got, _ = s.FindOpposingTeamByUUID(ctx, "opp-1")
+	if got.TeamName != "Eagles 12U Blue" {
+		t.Errorf("after update, TeamName = %q; want Eagles 12U Blue", got.TeamName)
+	}
+}
+
+func TestUpsertOpposingTeam_EmptyUUID(t *testing.T) {
+	s := newMemStore(t)
+	if err := s.UpsertOpposingTeam(context.Background(), OpposingTeam{TeamName: "x"}); err == nil {
+		t.Errorf("expected error on empty UUID")
+	}
+}
+
+func TestFindOpposingTeam_NotFound(t *testing.T) {
+	s := newMemStore(t)
+	ctx := context.Background()
+	got, err := s.FindOpposingTeamByUUID(ctx, "missing")
+	if err != nil || got != nil {
+		t.Errorf("missing UUID should return (nil, nil); got (%v, %v)", got, err)
+	}
+	got, err = s.FindOpposingTeamByName(ctx, "missing")
+	if err != nil || got != nil {
+		t.Errorf("missing name should return (nil, nil); got (%v, %v)", got, err)
+	}
+}
+
+func TestFindOpposingTeamByName_CaseInsensitive(t *testing.T) {
+	s := newMemStore(t)
+	ctx := context.Background()
+	_ = s.UpsertOpposingTeam(ctx, OpposingTeam{TeamUUID: "opp-1", TeamName: "Eagles 12U", LastFetchedAt: "2026-05-15T18:00:00Z"})
+	for _, query := range []string{"eagles 12u", "EAGLES 12U", "Eagles 12U"} {
+		got, err := s.FindOpposingTeamByName(ctx, query)
+		if err != nil {
+			t.Fatalf("query %q: %v", query, err)
+		}
+		if got == nil || got.TeamUUID != "opp-1" {
+			t.Errorf("query %q: got %v; want opp-1", query, got)
+		}
+	}
+}
+
+func TestFindOpposingTeamByName_MostRecentOnCollision(t *testing.T) {
+	s := newMemStore(t)
+	ctx := context.Background()
+	_ = s.UpsertOpposingTeam(ctx, OpposingTeam{TeamUUID: "opp-old", TeamName: "Hawks", LastFetchedAt: "2025-01-01T00:00:00Z"})
+	_ = s.UpsertOpposingTeam(ctx, OpposingTeam{TeamUUID: "opp-new", TeamName: "Hawks", LastFetchedAt: "2026-05-15T18:00:00Z"})
+	got, err := s.FindOpposingTeamByName(ctx, "Hawks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TeamUUID != "opp-new" {
+		t.Errorf("on name collision, want most-recent UUID (opp-new); got %s", got.TeamUUID)
+	}
+}

@@ -85,3 +85,71 @@ func (s *Store) CrossReferenceRoster(
 	}
 	return out, nil
 }
+
+// ─── Opposing-team metadata cache (U6 — Fork A) ────────────────────────────
+//
+// These queries back the matchup-history scout orchestrator's opponent
+// name↔UUID resolution. opposing_teams (migration v4) caches the 220-byte
+// /opponent/{uuid} responses so repeat scout invocations don't re-fetch.
+
+// UpsertOpposingTeam inserts or updates one opposing-team metadata row.
+// Used after each successful OpponentDetail fetch.
+func (s *Store) UpsertOpposingTeam(ctx context.Context, team OpposingTeam) error {
+	if team.TeamUUID == "" {
+		return gcerr.Storagef("UpsertOpposingTeam: team_uuid is required")
+	}
+	const q = `
+		INSERT INTO opposing_teams (team_uuid, team_name, last_fetched_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(team_uuid) DO UPDATE SET
+			team_name       = excluded.team_name,
+			last_fetched_at = excluded.last_fetched_at`
+	if _, err := s.db.ExecContext(ctx, q,
+		team.TeamUUID, team.TeamName, team.LastFetchedAt); err != nil {
+		return gcerr.Storagef("upsert opposing_teams %s: %v", team.TeamUUID, err)
+	}
+	return nil
+}
+
+// FindOpposingTeamByUUID returns the cached opposing-team row, or nil if not
+// present. Not-present is not an error — caller decides whether to fetch.
+func (s *Store) FindOpposingTeamByUUID(ctx context.Context, teamUUID string) (*OpposingTeam, error) {
+	if teamUUID == "" {
+		return nil, nil
+	}
+	const q = `SELECT team_uuid, team_name, last_fetched_at FROM opposing_teams WHERE team_uuid = ?`
+	row := s.db.QueryRowContext(ctx, q, teamUUID)
+	var t OpposingTeam
+	if err := row.Scan(&t.TeamUUID, &t.TeamName, &t.LastFetchedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, gcerr.Storagef("FindOpposingTeamByUUID %s: %v", teamUUID, err)
+	}
+	return &t, nil
+}
+
+// FindOpposingTeamByName returns the cached opposing-team row matching the
+// given name case-insensitively. Returns nil if not found. If multiple rows
+// match (different UUIDs, same case-normalized name — possible when a team
+// rebranded), returns the most-recently-fetched.
+func (s *Store) FindOpposingTeamByName(ctx context.Context, name string) (*OpposingTeam, error) {
+	if name == "" {
+		return nil, nil
+	}
+	const q = `
+		SELECT team_uuid, team_name, last_fetched_at
+		FROM opposing_teams
+		WHERE LOWER(team_name) = LOWER(?)
+		ORDER BY last_fetched_at DESC
+		LIMIT 1`
+	row := s.db.QueryRowContext(ctx, q, name)
+	var t OpposingTeam
+	if err := row.Scan(&t.TeamUUID, &t.TeamName, &t.LastFetchedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, gcerr.Storagef("FindOpposingTeamByName %q: %v", name, err)
+	}
+	return &t, nil
+}
