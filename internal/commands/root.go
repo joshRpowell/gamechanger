@@ -52,6 +52,7 @@ func NewRoot(stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newRefreshCmd(opts))
 	root.AddCommand(newAuthCmd(opts))
 	root.AddCommand(newVerifyCmd(opts))
+	root.AddCommand(newScoutCmd(opts))
 	return root
 }
 
@@ -112,6 +113,10 @@ func exitCodeFor(err error) int {
 	var pex *parityExit
 	if errors.As(err, &pex) {
 		return pex.Code()
+	}
+	var sex *scoutExit
+	if errors.As(err, &sex) {
+		return sex.Code()
 	}
 	switch {
 	case errors.Is(err, gcerr.ErrAuth):
