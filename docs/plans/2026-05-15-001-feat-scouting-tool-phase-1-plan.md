@@ -156,7 +156,7 @@ exit code:
 
 ```
 internal/scout/
-├── scout.go                  (U6 — orchestrator + cross-reference)
+├── scout.go                  (U6 — matchup-history orchestrator)
 └── scout_test.go             (U6 — uses httptest fake + in-memory SQLite; ~5-LOC inline loadFixture helper at top of file)
 
 internal/client/
@@ -211,7 +211,26 @@ CHANGELOG.md                  (U8 — Unreleased entry)
 0. **Land the `.gitignore` entry first** — add `testdata/har/` to `.gitignore` and commit BEFORE any HAR capture so no partial-capture state can be staged. The downstream verification step (`git status` shows no uncommitted HAR files) is only meaningful if this happens first.
 1. Open `web.gc.com` in Chrome / Firefox with DevTools → Network tab open. Log in (token paste-flow already established).
 2. Navigate to an opposing team via the schedule (tap next game → opposing team → roster). Save the relevant network request as HAR via DevTools "Save all as HAR with content".
-3. Extract just the response body for the roster endpoint into `testdata/har/roster_<sample>.json` as normalized JSON. **Strip auth context before saving** — use `jq 'del(.log.entries[].request.headers[] | select(.name | test("gc-token|gc-device-id|Authorization|Cookie"; "i")))' raw.har` or equivalent to remove credential-bearing headers. Verify with `grep -ri 'gc-token\|Authorization\|gc-device-id' testdata/har/ && echo SCRUB_FAIL` — non-empty output means a credential leaked through.
+3. Extract just the response body for the roster endpoint into `testdata/har/roster_<sample>.json` as normalized JSON. **Strip auth context before saving** — credentials can hide in request headers, response headers (`Set-Cookie`), HAR-level cookie arrays, and URL query strings; the filter must cover all four. Use a filter equivalent to:
+
+   ```jq
+   .log.entries[] |= (
+     .request.cookies = []
+     | .response.cookies = []
+     | .request.queryString |= map(select(.name | test("token|auth|key|secret|session"; "i") | not))
+     | .request.headers |= map(select(.name | test("gc-token|gc-device-id|authorization|cookie|bearer"; "i") | not))
+     | .response.headers |= map(select(.name | test("set-cookie|authorization"; "i") | not))
+   )
+   ```
+
+   Also manually audit `response.content.text` for token-shaped values — no automated filter can know which response fields are credentials without endpoint-specific knowledge. Verify with a composable guard that exits non-zero on detection so it works in pre-commit hooks and CI:
+
+   ```bash
+   if grep -rqEi 'gc-token|gc-device-id|authorization|set-cookie|bearer' testdata/har/; then
+     echo "SCRUB_FAIL — credentials detected in HAR fixtures" >&2
+     exit 1
+   fi
+   ```
 4. Document in `docs/research/gc-scout-api-notes.md`: request path, method, query params, Accept header (the existing `application/vnd.gc.com.team:list+json; version=X.Y.Z` pattern), response shape (note triple-shape candidates: bare array, `{teams:[]}`, `{data:[]}`), and any field-name quirks. Update the existing `docs/research/gc-api-notes.md`'s "Known unknowns" section if the roster endpoint clarifies it.
 5. **Decision matrix — record disposition in the doc before U2 begins:**
    - (a) Roster endpoint exists as a separate addressable path → proceed as planned.
@@ -224,7 +243,7 @@ CHANGELOG.md                  (U8 — Unreleased entry)
 
 **Test scenarios:** Test expectation: none — this is a discovery unit. Verification is the existence of one captured fixture + a complete endpoint-shape document + recorded disposition (a/b/c).
 
-**Verification:** `docs/research/gc-scout-api-notes.md` documents the roster endpoint with request method, path, query params, Accept header, response shape, and the chosen disposition. One corresponding HAR capture exists in `testdata/har/`. `.gitignore` excludes that directory. `git status` shows no uncommitted HAR files in tracked paths. Scrub verification (the `grep` in step 3) returns empty.
+**Verification:** `docs/research/gc-scout-api-notes.md` documents the roster endpoint with request method, path, query params, Accept header, response shape, and the chosen disposition. One corresponding HAR capture exists in `testdata/har/`. `.gitignore` excludes that directory. `git status` shows no uncommitted HAR files in tracked paths. Scrub verification (the `grep` in step 3) produces no output and exits non-zero — no matches found, so the `&& echo SCRUB_FAIL` branch does not execute.
 
 ---
 
@@ -301,6 +320,9 @@ Both return `application/json; charset=utf-8` with `Accept: application/json` (n
 **Patterns to follow:** `internal/client/client.go` (existing methods, triple-shape defensive parsing, 429-retry, `WithBaseURL`). `internal/sync/integration_test.go` (httptest pattern).
 
 **Test scenarios:**
+
+> **Note (2026-05-16 retro):** the scenarios below describe the pre-reshape `Roster()` method. The shipped unit ships `GameSummaries()` (bare-array response) and `OpponentDetail()` (bare-object response) — see `internal/client/scout_test.go` for the actual coverage. The triple-shape defensive parsing scenario was unnecessary against the confirmed bare-array / bare-object responses and is not part of the shipped tests.
+
 - `Roster(ctx, validUUID)` against a fake server returning the U1 roster HAR → returns expected `OpposingPlayer` slice with names, jerseys, positions.
 - `Roster(ctx, invalidUUID)` against a server returning 404 → returns `ErrTeamNotFound`.
 - `Roster(ctx, uuid)` against a server returning 429 once then 200 → retries and succeeds (existing retry path).
@@ -324,7 +346,7 @@ The pre-reduction plan had U5 as a separate `internal/scoutfixture/` sibling pac
 
 **Goal:** Orchestrate the matchup-history workflow. Given an opponent identifier (name or UUID), fetch `/game-summaries` for the user's team, filter to games against that opponent, persist opponent name to `opposing_teams`, and assemble a `MatchupHistory` with scored games sorted DESC by date.
 
-**Note on already-shipped code:** the pre-reshape `CrossReferenceRoster` query (committed at `36418fd`) is **unused in Fork A's runtime** but kept in the codebase for Fork B's potential revival. Its tests remain green. New code in this unit lives in `MatchupAgainstOpponent` (new function in the same file) and is the function `scout.go` actually calls.
+**Note on already-shipped code (2026-05-16 retro correction):** the pre-reshape `CrossReferenceRoster` query (committed at `36418fd`) is **unused in Fork A's runtime** but kept in the codebase for Fork B's potential revival. Its tests remain green. Fork A's matchup-history filtering happens **inline inside `scout.Scout()`** in `internal/scout/scout.go` — the orchestrator iterates `GameSummaries` and filters by `opponent_id` directly. There is no separate `MatchupAgainstOpponent` function (an earlier draft of this note named one; that name does not exist in the shipped code).
 
 **Requirements:** R3, R4 (matchup history).
 
@@ -333,7 +355,7 @@ The pre-reduction plan had U5 as a separate `internal/scoutfixture/` sibling pac
 **Files:**
 - `internal/scout/scout.go` (new — `Scout(ctx, store, client, teamUUID) (*ScoutContext, error)`)
 - `internal/scout/scout_test.go` (new — uses httptest fake + in-memory SQLite; ~5-LOC inline `loadFixture(t, name) []byte` helper at top of file using `os.ReadFile(filepath.Join("..", "..", "testdata", "har", name))`)
-- `internal/store/scout_queries.go` (new — `CrossReferenceRoster(ctx, opposingTeamName, rosterNames) ([]RecognitionMarker, error)`)
+- `internal/store/scout_queries.go` (new — `CrossReferenceRoster(...)` ships as dormant code for Fork B revival; Fork A's runtime does not call it)
 - `internal/store/scout_queries_test.go` (new)
 
 **Approach:**
@@ -352,9 +374,12 @@ The pre-reduction plan had U5 as a separate `internal/scoutfixture/` sibling pac
 **Patterns to follow:** `internal/sync/syncer.go` (orchestrator shape with `Now func() time.Time` clock injection, context cancellation). `internal/store/queries.go` (existing query patterns, parameterized SQL).
 
 **Test scenarios:**
+
+> **Note (2026-05-16 retro):** the scenarios below describe the **dormant `CrossReferenceRoster` path** (Fork B revival, not Fork A runtime). Fork A's actual runtime coverage — GameSummaries fetch, opponent_id filtering, opponent-name resolution via `opposing_teams` cache, freshness via `last_fetched_at` — lives in `internal/scout/scout_test.go`. The scenarios are preserved so that Fork B's revival has a starting test contract.
+
 - Happy path: in-memory store seeded with own-team history vs "Eagles 12U" that includes "John Smith"; httptest server returns roster for that team containing "John Smith". `Scout` populates opposing tables and returns ScoutContext with a recognition marker on John Smith pointing to the historical game.
 - **Covers AE1 (partial).** Cross-reference returns `RecognitionMarker{ GameDate: "2026-04-15", Opponent: "Eagles 12U" }` — no score field in 1a; Phase 1b adds the score.
-- **Covers AE2.** Case-insensitive match: "JOHN SMITH" in opposing roster, "john smith" in historical games → marker surfaces. Punctuation-different ("John Smith Jr." vs "John Smith") → NO marker (exact match only).
+- **Dormant scenario — Fork B player-name match path.** Case-insensitive match: "JOHN SMITH" in opposing roster, "john smith" in historical games → marker surfaces. Punctuation-different ("John Smith Jr." vs "John Smith") → NO marker (exact match only). (Originally labeled "Covers AE2"; AE2 cannot ship in Fork A per Requirements Trace.)
 - **Team-scoped join (ce-doc-review fix).** Own-team played "Tigers" and faced a "John Smith" there. Now scouting "Eagles 12U" whose roster also has a "John Smith" → NO marker (the John Smith in history played for Tigers, not Eagles). Without team scoping, the marker would falsely surface.
 - Cache hit path: pre-populated `opposing_teams` row with `last_fetched_at` < 24h → no API calls issued; ScoutContext returned from cache with cache age in minutes.
 - Cache stale path: `last_fetched_at` > 24h → re-fetch triggered.
@@ -422,7 +447,7 @@ Matchup vs Eagles 12U (4 games)
 - Network failure: exit 30 with hint to check connectivity.
 - Empty own-team cache: orchestrator returns `ErrCacheEmpty` → exit 40 with hint "run `gamechanger refresh` first to populate your team's history".
 - `--refresh` flag: orchestrator called with refresh=true; verified via mock.
-- **Covers AE1 + AE2 end-to-end (integration test).** Spin up an `httptest.Server` returning `testdata/har/roster_<sample>.json`. Seed an in-memory SQLite via `store.OpenAt(":memory:")` with games rows including opponent "Eagles 12U" and `game_batter_stats` containing "John Smith". Run `runScout(ctx, stdout, stderr, "<team-uuid>", opts)` end-to-end (no mocks below the cobra layer). Assert: stdout contains the player name AND the line "we played them 2026-04-15" (or whatever date the seed data uses). Validates the full chain: command → orchestrator → client → store → cross-reference → format renderer.
+- **Planned: Covers AE1 end-to-end (integration test) — not landed in Phase 1a.** As written, this scenario would spin up an `httptest.Server` returning a `game-summaries` HAR fixture, seed an in-memory SQLite with own-team games rows including opponent "Eagles 12U", run `runScout(ctx, stdout, stderr, "<team-uuid>", opts)` end-to-end (no mocks below the cobra layer), and assert stdout contains the matchup-history line "we played them 2026-04-15 ... L 4-7". (2026-05-16 retro: the originally drafted scenario asserted on `game_batter_stats` + player-name lines, which was a leftover of the pre-reshape AE2 path — Fork A does not emit player names. `scout_integration_test.go` was **not** created; the cobra→HTTP chain is exercised by the unit-level scout/client tests instead. If end-to-end coverage is wanted, restore this scenario under the Fork A shape above.)
 
 **Verification:** `go test ./internal/commands/... ./internal/format/...` green. Integration test exercises the full real chain (mocks only the HTTP boundary). Manual: `gamechanger scout <real-team-uuid>` returns a populated context; piping through `pbcopy` produces clean text.
 
@@ -495,7 +520,7 @@ Matchup vs Eagles 12U (4 games)
   - Pagination handling for opposing schedules (if U1 of 1b confirms paginated responses)
   - Cache freshness coherence for hybrid (burst + lazy) fetch strategy
 - **Phase 2 — TUI navigator plan.** A follow-up plan covering R7, R8, AE6, AE7 from the origin: interactive TUI providing scouting-shaped navigation (a strict subset of the web UI's graph, with scout-task annotations as primary content per origin R7/R8 — pure UI parity is explicitly out per origin's identity boundary), lazy-fetch orchestration per screen, cache-age indicators, full keyboard navigation. TUI framework selection (Bubble Tea / tcell / gocui) belongs to that plan.
-- **HAR fixture anonymization + committed corpus** — promote from local-only to committed/shared corpus when CI lands or contributor onboarding requires it (mirrors parity-harness plan's CI-deferred posture).
+- **HAR fixture anonymization + committed corpus** — promote from local-only to committed/shared corpus when CI lands or contributor onboarding requires it (mirrors parity-harness plan's CI-deferred posture). **Pre-promotion gate:** the existing anonymizer at `internal/parity/anonymize/anonymize.go` must be extended (or a HAR-specific analog written) to substitute player names, opponent names, and other PII inside HAR response bodies using the same `substitutionMap` pool pattern. Corpus promotion should be gated on a CI check that asserts no committed fixture contains names outside the synthetic pool. Raw response bodies must never enter a shared corpus without this pass.
 - **Cross-reference broader sources** — currently only the user's own team's history (cache.db). Broader (prior teams the user coached, league-wide history) is a separate data-source workstream.
 - **PII retention TTL on `opposing_roster`** — Phase 1a documents the user-local posture; Phase 1b earns a retention decision before opposing_coaches / opposing_games tables compound the surface.
 - **HAR fixture drift detection** — local-only fixtures mean drift surfaces only when a developer re-records. A `make scout-verify-live` opt-in target that hits live endpoints with a known team UUID and runs the parsed-response comparison is a candidate for Phase 1b or independent tooling.
@@ -521,7 +546,7 @@ Matchup vs Eagles 12U (4 games)
 | Rate limiting hits the single roster call (unlikely — one call per scout invocation) | Very low | Low | Single sequential call inside existing 500ms cadence; existing 429 retry path handles bursts |
 | Schema migration v4 incompatible with future Ruby scouting (if scope expands) | Low | Medium | Migration is additive-only; v4+ Go-only is a documented decision; if Ruby ever needs scout tables it adds v5+ in its own namespace |
 | HAR fixture drifts from live API over time | Medium | Medium | Local-only fixtures mean each developer refreshes on their own cadence; engine assertion failures surface drift when a developer re-records; doc lifecycle says "re-record when assertions fail" |
-| User invokes `scout <slug>` expecting AE1's `eagles-12u` to work | High initially | Low | U7 explicitly rejects non-UUID input with hint text directing user to Phase 1b for slug support |
+| User expects slug-based team lookup (e.g., `scout eagles-12u`); Phase 1a only accepts UUIDs | High initially | Low | U7 explicitly rejects non-UUID input with hint text directing user to Phase 1b for slug support |
 
 ---
 
@@ -552,6 +577,39 @@ Each phase leaves the repo in a consistent state. Stopping at any phase is fine.
 - [Affects U6][Technical] Cache freshness TTL — "stale" threshold (24h fixed vs config-driven). Pick during U6 with a default that matches the night-before workflow (24h is the working default).
 - [Affects U7][Technical] Plain-text format spec (column widths, max-line for AE3 500-char cap). Pin during U7 via output golden files.
 - [Affects U7][Technical] Whether `team-not-found` exit code should distinguish "invalid UUID format" from "valid UUID but team not in API." Code 10 covers both in 1a; revisit if AI-loop usage shows the distinction matters.
+
+---
+
+## Open Questions Surfaced by 2026-05-16 ce-doc-review
+
+*Post-implementation retro review (PR #4 shipped 2026-05-16). Doc-drift fixes and the HAR-scrub procedural update from that pass have been applied in place above. The items below are deferred decisions for Phase 1b's planning session or for an immediate follow-up cleanup.*
+
+### Scope / Fork B disposition
+
+- **[B1] Concrete re-evaluation trigger for Fork B.** Today the trigger is "revisit if matchup-history scout proves valuable" — an indefinite condition. Set a date or signal (e.g., "if Fork B not started by 2026-08-15, file a removal ticket"). Without one, `CrossReferenceRoster` and `opposing_roster` become archaeology.
+- **[B2] Disposition for unused `opposing_roster` table.** Keep dormant, drop in migration v5, or wire Fork B before Phase 1b's `opposing_coaches`/`opposing_games` compound the surface? Decision should land before v5 ships.
+
+### Product premise / identity
+
+- **[D1] Re-validate the night-before-value premise** (brainstorm-level) before Phase 1b extends scout's surface. The claim that matchup-history preserves the night-before value is plan-introduced, not origin-validated.
+- **[D2] Amend or supersede the origin brainstorm** (`docs/brainstorms/2026-05-15-scouting-tui-requirements.md`) to reflect that the validated product is matchup-history, not roster recognition. AE1 was silently redefined from cross-reference accent to primary surface.
+- **[D3] Strategic case for Fork A vs Fork C** (`/game-summaries` as columns inside `progress`/`brief`). What makes scout-as-product distinct from `progress --vs-opponent`?
+- **[D4] Identity boundary** between scout and `progress`/`brief`. Phase 1b's slug resolution and score backfill may belong in `progress` rather than scout.
+
+### Security / PII
+
+- **[E1] UUIDs in `cmd/scout-probe/main.go` git history** (added `15564ee`, deleted `d36af56`). Squash/rewrite branch history vs accept-as-risk depends on repo visibility. Public → P0; private → accepted with documented risk.
+- **[E2] Minors'-PII consent model + deletion path.** Add a `scout --clear-cache <uuid>` (and/or `--clear-all`) command before Phase 1b's `opposing_coaches` / `opposing_games` tables compound the PII surface. COPPA/CPRA territory.
+
+### Phase 1a behaviors to re-examine in 1b
+
+- **[E4] Proximity-aware cache freshness.** Replace uniform 24h TTL with a shorter TTL when a scheduled game against this opponent is within N hours. 24h decays freshness exactly when the night-before workflow consults it.
+- **[E5] Content-length / truncated-response validation** in U4 client or U6 orchestrator. A 200 with a partial body currently parses to a smaller-than-expected slice and gets cached as complete for 24h.
+- **[E6] Split exit code 10** into 10 (input-malformed) + 11 (resource-not-found) before AE4's AI-loop consumers cement the contract. Reversing later is backward-incompatible.
+
+### Plan-doc hygiene for next time
+
+- **[E7] Trim Phase 1b's 10-item enumeration** in `Deferred to Follow-Up Work` to a single forward pointer (`see Phase 1b plan once written`). Phase 1b's plan author should decide scope after that plan's own discovery work.
 
 ---
 
