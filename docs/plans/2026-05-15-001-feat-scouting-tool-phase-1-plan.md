@@ -4,13 +4,40 @@ type: feat
 origin: docs/brainstorms/2026-05-15-scouting-tui-requirements.md
 status: active
 phase: 1a
+pivot: matchup-history-scout
+pivot_date: 2026-05-15
+pivot_rationale: U1 discovery confirmed the web/desktop API does not expose opposing-team rosters
 ---
 
-# feat: Pre-game scouting tool — Phase 1a (roster + cross-reference + scout CLI)
+# feat: Pre-game scouting tool — Phase 1a (matchup-history scout)
 
 ## Summary
 
-Phase 1a of the scouting tool: a slim slice that proves the data layer + workflow end-to-end on real data. Expands the cache schema to cover opposing-team rosters only, adds one API client method (`Roster`), implements name-based cross-reference against the user's own historical games, and ships `gamechanger scout <uuid>` with TTY-aware output. Phase 1b (coaches, opposing schedules, score columns, slug resolution) is deferred to a follow-up plan once 1a is proven against the real API. Phase 2 (TUI navigator) defers further per the brainstorm's B-first sequencing.
+Phase 1a of the scouting tool, **reshaped after U1 discovery** as a matchup-history scout. Given an opponent (by name or UUID), surface every prior game the user's team has played against them with scores, W/L, dates, and home/away. The original "scan opposing roster for familiar names" workflow can't ship against the web/desktop API surface — only the mobile app exposes opposing rosters (see `docs/research/gc-scout-api-notes.md`). The reshape keeps the night-before pre-game prep value via matchup history while remaining shippable against endpoints we've confirmed work.
+
+**What ships:** `gamechanger scout <opponent>` CLI that returns "you've played them N times. Last 5: 2026-04-15 home L 4-7, 2026-03-22 away W 8-3, ...". Uses the discovered `/teams/{uuid}/game-summaries` endpoint as the primary data source. Phase 2 (TUI) and the mobile-roster path (would unblock the original AE2 player-name workflow) both defer to separate plans.
+
+---
+
+## U1 Discovery Outcome (2026-05-15) — Plan Reshape
+
+The U1 gate (HAR/probe against the live API) caught a plan-blocking issue **exactly as designed**: the web/desktop GameChanger API does NOT expose opposing-team rosters. The endpoint we expected to find (something like `/teams/{opp_uuid}/players` or roster-inline-with-opponent-detail) doesn't exist on this API surface. The `/teams/{your_team}/opponent/{opp_uuid}` endpoint exists but returns only 220 bytes of opponent metadata — name and tracking IDs, no players, no coaches.
+
+Three forks emerged from the discovery (full analysis in `docs/research/gc-scout-api-notes.md`):
+
+| Fork | Description | Why it fits / doesn't |
+|---|---|---|
+| **A — Matchup history scout** (this plan) | Given an opponent, show prior games + scores + W/L | Ships against confirmed `/teams/{uuid}/game-summaries`. Loses AE2 (player-name match). |
+| B — Mobile-app capture | Use mitmproxy + cert override to find mobile-app roster endpoints | Larger lift, uncertain payoff, requires phone-side tooling setup |
+| C — Park scout | Drop scout entirely; use `/game-summaries` to enrich existing `progress`/`brief` analytics with W/L context | Smallest scope, abandons the scout product surface |
+
+**This plan adopts Fork A.** Forks B and C live in `### Deferred to Follow-Up Work` so they remain visible as future-session options.
+
+What survives intact from the pre-reshape plan:
+- **U1's findings doc** (`docs/research/gc-scout-api-notes.md`) is the durable artifact regardless of fork chosen.
+- **U2's schema migration v4** still ships — `opposing_teams` becomes a name→UUID cache; `opposing_roster` is unused in Fork A but kept for Fork B's revival path.
+- **`ErrAuthInsufficient` sentinel** is generally useful, ships regardless.
+- **U6's cross-reference query** (player-name match) ships as committed but is **unused by Fork A's runtime path**. Kept for Fork B revival; documented in U6 below.
 
 ---
 
@@ -34,11 +61,13 @@ Carrying forward from origin `docs/brainstorms/2026-05-15-scouting-tui-requireme
 
 **Key flows addressed in Phase 1a:** F2 (`scout` command — night-before scouting), at the roster + cross-reference layer. F3 (TUI navigator) defers to Phase 2 plan. F1 (current UI workflow) is superseded.
 
-**Requirements covered in Phase 1a:** R1 (opposing roster), R4 (cross-reference recognition markers — date + opponent only, no score), R5 (scout command), R6 (TTY-aware + JSON output), R9 (HAR-fixture validation, in-package), R10 (cache freshness).
+**Requirements covered in Phase 1a (post-reshape):** R3 (opposing schedules with results — repurposed: matchup history with the user's team), R4's date+opponent+score recognition shape (now the primary surface, not a secondary cross-reference), R5 (scout command), R6 (TTY-aware + JSON output), R9 (HAR-fixture validation, in-package), R10 (cache freshness).
 
-**Requirements deferred to Phase 1b:** R2 (coaches), R3 (opposing schedules with results), R4's score-bearing recognition (e.g. "lost 4-2"), R7/R8/AE6/AE7 (TUI).
+**Requirements deferred to Fork B (mobile-app capture) or future re-brainstorm:** R1 (opposing roster — API surface doesn't expose), R2 (coaches — same), R4's player-name-match recognition (depends on R1).
 
-**Acceptance examples covered in Phase 1a:** AE1 (partial — recognition marker carries date + opponent only; "lost 4-2" defers to 1b), AE2 (case-normalized exact name match), AE3 (text-friendly output cap), AE4 (JSON round-trip), AE5 (HAR fixture replay, in-test).
+**Requirements deferred to Phase 2:** R7, R8, AE6, AE7 (TUI navigator).
+
+**Acceptance examples covered in Phase 1a:** AE1 — **now fully covered** with score+W/L ("we played them 2026-04-15 — lost 4-2") since `/game-summaries` provides scores directly. AE3 (text-friendly output cap), AE4 (JSON round-trip), AE5 (HAR fixture replay, in-test). **AE2 cannot ship in Fork A** — depends on opposing-roster data the API doesn't expose.
 
 **Scope boundaries preserved verbatim** from origin's two categories (Deferred for later / Outside this product's identity). The plan adds a third subsection, `Deferred to Follow-Up Work`, for plan-local sequencing — Phase 1b follow-up plan, TUI follow-up plan, HAR corpus promotion, broader cross-reference sources.
 
@@ -56,7 +85,10 @@ Carrying forward from origin `docs/brainstorms/2026-05-15-scouting-tui-requireme
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Phase split | This plan covers Phase 1a only (roster + cross-reference + scout CLI); Phase 1b adds coaches/schedules/scores; Phase 2 adds TUI | ce-doc-review found 6 P1 findings on downstream-speculative work — Phase 1a defers them until U1's discovery confirms reality |
+| **Fork** | **A — Matchup-history scout** (vs. mobile-roster path or full park) | U1 discovery: web/desktop API doesn't expose opposing rosters; A ships against confirmed endpoints |
+| Primary data source | `/teams/{your_team_uuid}/game-summaries` — single endpoint returning all games with `owning_team_score`, `opponent_team_score`, `opponent_id`, `home_away`, `last_scoring_update` | Discovered by U1's probe; supersedes the original plan's boxscore-parsing path (no per-game iteration needed) |
+| Opponent name lookup | `/teams/{your_team_uuid}/opponent/{opp_uuid}` — 220B response with `name`, `owning_team_id`, `progenitor_team_id`, `root_team_id` | Cached in `opposing_teams` (U2) so subsequent invocations resolve names locally |
+| Phase split | This plan covers Phase 1a (matchup-history scout); Phase 1b promotes `/game-summaries` consumption into existing `progress`/`brief` analytics (W/L context); Phase 2 adds TUI; Fork B (mobile roster) is its own brainstorm if pursued | Discovery-driven; original phasing assumed roster endpoint existed |
 | Sequencing | U1 is HAR-capture discovery (no code lands) | Opposing-team endpoints are unverified; building against speculative paths is the most likely failure mode |
 | Schema | New migration v4 (Go-only); never edit v1–v3 | Ruby gem doesn't gain scouting; v1–v3 stay byte-identical for Ruby↔Go interop on existing analytics |
 | Schema scope | v4 adds **opposing_teams** + **opposing_roster** only; opposing_coaches / opposing_games / score columns defer to Phase 1b | Avoids committing to score-extraction shape before U1 confirms boxscore JSON carries scores; keeps migration footprint minimal |
@@ -241,11 +273,15 @@ Phase 1b will resume this unit under its original U-ID. The Phase 1b plan will o
 
 ---
 
-### U4. API client expansion — Roster method only
+### U4. API client expansion — GameSummaries + OpponentDetail methods *(reshaped)*
 
-**Goal:** Implement `Roster(ctx, teamUUID)` on `*Client`. Returns normalized `[]OpposingPlayer`; defensive triple-shape parsing per the existing convention. Coaches + OpposingSchedule defer to Phase 1b.
+**Goal:** Add two methods to `*Client`:
+- `GameSummaries(ctx, teamUUID) ([]GameSummary, error)` — fetches the full matchup history from `/teams/{uuid}/game-summaries`. Returns games with `opponent_id`, `home_away`, `owning_team_score`, `opponent_team_score`, `game_status`, `last_scoring_update`. Bare-array response (confirmed by U1).
+- `OpponentDetail(ctx, teamUUID, opponentUUID) (*OpponentDetail, error)` — fetches `/teams/{uuid}/opponent/{opp_uuid}`. Returns `name`, `owning_team_id`, `progenitor_team_id`, `root_team_id`. Used to resolve opponent name once and cache it. 220B response.
 
-**Requirements:** R1 (roster fetch).
+Both return `application/json; charset=utf-8` with `Accept: application/json` (no vendored media type needed — confirmed by U1).
+
+**Requirements:** R3, R4 (matchup history with results).
 
 **Dependencies:** U1 (roster endpoint shape documented).
 
@@ -283,11 +319,13 @@ The pre-reduction plan had U5 as a separate `internal/scoutfixture/` sibling pac
 
 ---
 
-### U6. Scout orchestrator + cross-reference assembly
+### U6. Scout orchestrator + matchup-history query *(reshaped)*
 
-**Goal:** Orchestrate the roster fetch (one API call), persist to v4 tables, and assemble a `ScoutContext` with recognition markers cross-referenced from the user's own historical games. Team-scoped join avoids false positives. Scores + W/L marker text defers to Phase 1b.
+**Goal:** Orchestrate the matchup-history workflow. Given an opponent identifier (name or UUID), fetch `/game-summaries` for the user's team, filter to games against that opponent, persist opponent name to `opposing_teams`, and assemble a `MatchupHistory` with scored games sorted DESC by date.
 
-**Requirements:** R1, R4 (orchestration + cross-reference).
+**Note on already-shipped code:** the pre-reshape `CrossReferenceRoster` query (committed at `36418fd`) is **unused in Fork A's runtime** but kept in the codebase for Fork B's potential revival. Its tests remain green. New code in this unit lives in `MatchupAgainstOpponent` (new function in the same file) and is the function `scout.go` actually calls.
+
+**Requirements:** R3, R4 (matchup history).
 
 **Dependencies:** U2 (schema), U4 (client method).
 
@@ -330,9 +368,18 @@ The pre-reduction plan had U5 as a separate `internal/scoutfixture/` sibling pac
 
 ---
 
-### U7. `scout` cobra subcommand with TTY-aware output
+### U7. `scout` cobra subcommand — matchup-history output *(reshaped)*
 
-**Goal:** Wire the user-facing `scout <team-uuid>` command. TTY-aware rendering (colored/structured at terminal; plain text when piped); explicit `--format json` for AI/agent consumers; explicit `--refresh` to bypass cache.
+**Goal:** Wire the user-facing `scout <opponent>` command — argument is opponent name (looked up via `opposing_teams` cache) or opponent UUID. Output is the matchup-history table: last N games vs that opponent with date, home/away, W/L, score. TTY-aware rendering (colored/structured at terminal; plain text when piped); explicit `--format json` for AI/agent consumers; explicit `--refresh` to bypass cache.
+
+**Output example (text format, paste-friendly for AE3):**
+```
+Matchup vs Eagles 12U (4 games)
+2026-04-15  home  L 4-7
+2026-03-22  away  W 8-3
+2026-02-08  away  W 6-5
+2025-11-12  home  L 2-9
+```
 
 **Requirements:** R5, R6, R10 (command surface, output, cache behavior).
 
@@ -433,6 +480,9 @@ The pre-reduction plan had U5 as a separate `internal/scoutfixture/` sibling pac
 ### Deferred to Follow-Up Work
 
 *Plan-local sequencing — work that this plan defers to separate plans, not non-goals:*
+
+- **Fork B — Mobile-app capture for opposing rosters.** Original brainstorm's AE2 (player-name recognition on opposing rosters) requires endpoints the web/desktop API doesn't expose. Mitmproxy + cert override on a phone could surface the mobile-app endpoints. Larger lift; revisit if matchup-history scout proves valuable and users want the deeper recognition.
+- **Fork C — Park scout; promote `/game-summaries` to `progress`/`brief`.** `/game-summaries` returning team-level scores per game is also valuable for existing analytics. Even if scout itself is parked, threading score+W/L into `progress` / `brief` outputs is a smaller, lower-risk delivery path with overlap onto matchup-history value.
 
 - **Phase 1b — Coaches, opposing schedules, scores, slug resolution.** A follow-up plan that resumes U3 (boxscore score extraction + migration v5) and adds:
   - Coaches endpoint discovery + `opposing_coaches` table + `Coaches` client method
