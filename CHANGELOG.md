@@ -5,6 +5,81 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — Go CLI port (experimental, side-by-side with Ruby gem)
+
+A parallel Go implementation of the CLI is being developed on `experiment/cli-printing-press`. This is a checkpoint of foundation-through-sync work; the Ruby gem under `lib/` and `exe/gamechanger` are unchanged.
+
+**Shipped in this checkpoint:**
+- Module scaffold: `cmd/gamechanger`, `internal/version`, `internal/gcerr` (sentinel error categories).
+- `internal/config` — load/save `~/.gamechanger/config.yml` and the `~/.gamechanger/session` token cache. Wire-compatible with the Ruby gem's file format so a user who ran Ruby `setup` does not need to re-authenticate.
+- `internal/store` — SQLite cache using `modernc.org/sqlite` (pure-Go, no cgo). Migrations 1-3 match the Ruby schema. Ten queries powering the brief command's data feed: `UpsertGame`, `ClearNonFinal`, `AllGames`, `UpsertPitcherStats`, `UpsertBatterStats`, `NextScheduledGame`, `PitcherAvailability`, `BatterLineupData`, `AllPlayerDevelopmentSummary`, `PlayerParticipation`.
+- `internal/client` — HTTP client for the four Gamechanger endpoints (`/auth`, `/me/teams`, `/teams/{id}/schedule`, `/game-stream-processing/{id}/boxscore`) with `gc-token` + `gc-device-id` + `gc-app-name` headers, 429 retry, and a typed `ErrBoxscoreNotFound` so canceled or never-played games are skipped during sync instead of aborting it.
+- `internal/parser` — boxscore + batter stats extractors matching the Ruby parsers' field selection.
+- `internal/sync` — full port of `Gamechanger::Syncer`, including the `event_type == "game"` filter, the `status != 'canceled'`, future-game, and cached-final skip rules, and the final-game promotion.
+- `internal/commands` — Cobra command tree for `setup`, `refresh`, `version`, and a new `auth import` / `auth status` pair that imports a `gc-token` JWT captured from `web.gc.com`. Adds `--config-dir` and `GAMECHANGER_HOME` env-var override for safe smoke testing against a temp directory.
+
+**Why the new `auth import` command exists.** Gamechanger added MFA-with-email-code plus an HMAC-style `gc-signature`/`gc-timestamp` scheme on `POST /auth` that neither the Ruby nor Go CLI's bare `{email, password}` body can satisfy — both implementations currently 401 on `setup`/`refresh`. The data endpoints (`/me/teams`, `/teams/.../schedule`, `/game-stream-processing/.../boxscore`) do **not** require `gc-signature`; they accept any unexpired `gc-token` JWT. `auth import` lets the user paste a token from their logged-in browser session, sidestepping the signed `/auth` flow until either the signing key is reverse-engineered or Gamechanger relaxes auth.
+
+**Verified end-to-end against the live `api.team-manager.gc.com` API.** A single smoke run (browser-pasted token → `gamechanger refresh --config-dir <tmp>`) synced 26 games / 67 pitcher outings / 272 batter rows in ~22 seconds. Currently the Go cache has more recent data than the Ruby gem's cache, because the Ruby `setup`/`refresh` path has been broken by Gamechanger's MFA change.
+
+**Verified offline.** `go test ./...` passes for `gcerr`, `config`, `store`, `parser`, and `sync`. The `sync` package includes an integration test that spins up an `httptest.Server` for `/auth` + `/schedule` + `/boxscore` and runs the full pipeline against in-memory SQLite, asserting both row counts and that the cached token causes the second run to skip re-auth.
+
+**Not yet ported (tracked in TODOS.md → Go port WIP):**
+- Analytics layer: `pitch_rules.rb`, `lineup_optimizer.rb`, `development_arc.rb`, `pre_game_brief.rb` — pure-Go domain logic; no I/O.
+- Formatters (`Brief()`, `Plan()`, `Hitting()`, etc. across table / json / markdown).
+- The eight remaining commands: `brief`, `plan`, `lineup`, `equity`, `hitting`, `progress`, `availability`, `pitches`.
+- Unit tests for `internal/client` and `internal/commands` (the `sync` integration test exercises both end-to-end; per-package tests with mocks are still wanted).
+- Release packaging (no `.github/workflows` for Go binaries yet).
+
+**Goal:** if the analytics-and-formatter port lands cleanly and the Go binary survives a real season of use, retire the Ruby gem.
+
+### Added — Pre-game scout (Phase 1a, Fork A: matchup-history)
+
+`gamechanger scout <opponent>` — show matchup history against an opponent. Given an opponent name (case-insensitive) or UUID, returns every prior game with score, W/L, home/away, sorted DESC by date. TTY-aware output: colored at terminal, plain copy-paste text when piped (cap 500 chars for messaging into a coaches' group thread). `--format json` for AI/agent pipelines. `--refresh` bypasses the 24h opposing-team metadata cache. `--limit N` caps last N games.
+
+**U1 discovery (the gate)** caught that the GameChanger web/desktop API does NOT expose opposing-team rosters — the original brainstorm's "scan opposing roster for familiar names" workflow can't ship against this API. Only the mobile app has those endpoints. The plan was reshaped to matchup-history scout (Fork A) which ships against confirmed endpoints. Full discovery write-up in `docs/research/gc-scout-api-notes.md`.
+
+**Bonus discovery:** `/teams/{uuid}/game-summaries` returns per-game `owning_team_score` + `opponent_team_score` + `opponent_id` in a single call. Much cleaner score-data source for a future `progress`/`brief` enrichment than the boxscore-parsing path the original plan assumed.
+
+**Shipped:**
+- Migration v4: `opposing_teams` + `opposing_roster` tables (Go-only, additive). `opposing_roster` unused under Fork A; kept for Fork B (mobile-app capture) revival.
+- `gcerr.ErrAuthInsufficient` sentinel for distinguishing 403 (auth scope) from 401 (token expired).
+- `internal/client/scout.go` — `GameSummaries` + `OpponentDetail` methods, defensive parsing, `ErrTeamNotFound` sentinel.
+- `internal/scout/` orchestrator — W/L/T outcome derivation, 24h cache TTL, injectable clock + client for tests.
+- `internal/store/scout_queries.go` — `UpsertOpposingTeam`, `FindOpposingTeamByUUID`, `FindOpposingTeamByName` (case-insensitive, most-recent on collision). Also `CrossReferenceRoster` (kept for Fork B but unused under Fork A).
+- `internal/format/scout.go` — TTY-aware renderer + JSON encoder.
+- `internal/commands/scout.go` — cobra wiring with `scoutExit` typed exit pattern (6 distinct codes per failure mode).
+
+**Tests:** 201 across 18 packages, no regressions.
+
+**Deferred:**
+- Promote `/game-summaries` to existing `progress`/`brief` for W/L context in own-team analytics (GO-9).
+- Phase 2 — TUI navigator (GO-10).
+- Fork B — mobile-app capture to unblock opposing-roster recognition (original AE2) — requires mitmproxy + cert override (GO-11).
+
+### Added — Verify-parity harness pilot (U1, AI-loop gate)
+
+A Ruby-versus-Go behavioral parity harness for the analytics port — pilot stage only. U1 is the gate that decides whether the full harness (U3-U6) gets built. The pilot ports `development_arc.rb` to Go via an AI-driven loop and diffs the JSON output against the real Ruby implementation. **Gate result: PASS in 2 iterations.**
+
+**Shipped in this checkpoint:**
+- **Ruby side, `GAMECHANGER_HOME` env var** — `Config.home_dir` / `.config_file_path` / `.session_file_path` and `Storage#data_dir` now consult `GAMECHANGER_HOME` with a `~/.gamechanger` fallback. Lets the harness point Ruby and Go at the same fixture directory. Legacy `CONFIG_DIR` / `CONFIG_FILE` / `SESSION_FILE` / `DATA_DIR` constants preserved for back-compat. +14 rspec cases including regression guards on default-path behavior; `bundle exec rspec` = 586 examples, 0 failures.
+- **`internal/analytics/arc/`** — Go port of `lib/gamechanger/development_arc.rb` (144 LOC source → 179 LOC Go). `PlayerArc` struct + `BuildSummary`, `BuildPlayer`, `SparklineFor`, faithful narrative-archetype branching (peaking / strong starter / finding their groove / steady / building) and trend indicators (↑ / ↓ / →). Optional fields use `*float64` / `*int` / `*string` so JSON null marshals where Ruby emits nil. 25 Go table tests translate `spec/gamechanger/development_arc_spec.rb`.
+- **`cmd/progress-json/main.go`** — pilot-only Go entry point. Reads the gamechanger SQLite store and emits JSON matching Ruby's `Formatters::Json#progress` shape. Includes a `rubyFloat` custom marshaler so whole-number floats serialize as `0.0` (matching Ruby's `Float#to_s`) instead of Go's default `0`.
+- **`bin/pilot-diff`** — shell harness. Runs Ruby `progress --format json` + Go `progress-json` against the same `GAMECHANGER_HOME`, canonicalizes both via `jq -S`, diffs them, exits 0 / 2 / 3 by outcome. Designed for AI-loop iteration: each per-iteration diff field count is the gate trajectory signal.
+- **Plan, brainstorm, ideation docs** — `docs/plans/2026-05-14-001-feat-verify-parity-harness-plan.md` (5-unit plan post-eng-review), `docs/brainstorms/2026-05-14-verify-parity-harness-requirements.md` (R1-R14, AE1-AE6), and `docs/ideation/2026-05-14-gamechanger-go-port-direction-ideation.md` (Go-port strategic framing). Plan went through ce-doc-review (19 fixes, 5-persona pass), plan-eng-review (scope reduction 8→5 units; 7 issues fixed), and this `/ship`.
+- **TODOS.md** — `GO-8 Anchor-fixture regeneration cadence + procedure` for future U3/U4 work.
+
+**Pilot gate trajectory** (the load-bearing signal):
+- Iteration 0 (pre-impl): all Go table tests undefined → build fails
+- Iteration 1 (full Ruby→Go port): table tests PASS; pilot-diff = 1 drifted field (Go `json.Marshal` emits `0` for `0.0` vs Ruby `0.0`)
+- Iteration 2 (`rubyFloat` custom marshaler): pilot-diff = **0 drifted lines** — PARITY-PASS
+
+Gate criteria: monotonic reduction in drift, within iteration budget of 5. Both satisfied.
+
+**What this pilot did NOT validate** (intentional, per the plan's "bet" framing): convergence on `lineup_optimizer` (multi-pass ranking) or `tournament_planner` (stateful projection) — those are 3.6× larger and have more cross-field interaction. U3-U6 build is now justified but not committed; pause for user decision before continuing.
+
 ## [0.2.0] - 2026-05-13
 
 ### Changed

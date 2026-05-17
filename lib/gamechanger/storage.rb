@@ -68,12 +68,18 @@ module Gamechanger
       @season   = season.to_i
     end
 
+    # Resolution order: explicit `data_dir:` arg → GAMECHANGER_HOME env (via Config.home_dir)
+    # → DATA_DIR default. The verify-parity harness sets GAMECHANGER_HOME to point Ruby and Go
+    # at the same fixture; tests pass `data_dir: ':memory:'` for an in-memory database.
     def data_dir
       @resolved_data_dir ||=
         if @data_dir == ':memory:'
           ':memory:'
+        elsif @data_dir
+          FileUtils.mkdir_p(@data_dir, mode: 0o700)
+          @data_dir
         else
-          dir = @data_dir || DATA_DIR
+          dir = Config.home_dir
           FileUtils.mkdir_p(dir, mode: 0o700)
           dir
         end

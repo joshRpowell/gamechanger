@@ -16,8 +16,12 @@ RSpec.describe Gamechanger::Config do
   let(:session_file) { File.join(File.dirname(config_file), 'session') }
 
   before do
-    # Override SESSION_FILE to use tempdir for isolation
-    stub_const('Gamechanger::Config::SESSION_FILE', session_file)
+    # Point GAMECHANGER_HOME at the tempdir so session_file_path resolves there.
+    ENV['GAMECHANGER_HOME'] = @tmpdir
+  end
+
+  after do
+    ENV.delete('GAMECHANGER_HOME')
   end
 
   describe '#configured?' do
@@ -119,6 +123,45 @@ RSpec.describe Gamechanger::Config do
       File.write(config_file, "key: {\n  bad yaml: [\n")
       expect { described_class.new(config_file: config_file) }
         .to raise_error(Gamechanger::ConfigError, /Malformed config/)
+    end
+  end
+
+  describe '.home_dir + GAMECHANGER_HOME env var (verify-parity harness)' do
+    # The verify-parity harness sets GAMECHANGER_HOME so Ruby and Go read from the same fixture.
+
+    it 'returns the env-var path when GAMECHANGER_HOME is set' do
+      ENV['GAMECHANGER_HOME'] = '/tmp/custom-gc-home'
+      expect(described_class.home_dir).to eq('/tmp/custom-gc-home')
+    end
+
+    it 'expands ~ when GAMECHANGER_HOME contains a tilde' do
+      ENV['GAMECHANGER_HOME'] = '~/custom-gc-home'
+      expect(described_class.home_dir).to eq(File.expand_path('~/custom-gc-home'))
+    end
+
+    it 'falls back to ~/.gamechanger when GAMECHANGER_HOME is unset (REGRESSION GUARD)' do
+      ENV.delete('GAMECHANGER_HOME')
+      expect(described_class.home_dir).to eq(File.expand_path('~/.gamechanger'))
+    end
+
+    it 'falls back to ~/.gamechanger when GAMECHANGER_HOME is empty string' do
+      ENV['GAMECHANGER_HOME'] = ''
+      expect(described_class.home_dir).to eq(File.expand_path('~/.gamechanger'))
+    end
+
+    it 'session_file_path uses the env-var directory' do
+      ENV['GAMECHANGER_HOME'] = @tmpdir
+      expect(described_class.session_file_path).to eq(File.join(@tmpdir, 'session'))
+    end
+
+    it 'config_file_path uses the env-var directory' do
+      ENV['GAMECHANGER_HOME'] = @tmpdir
+      expect(described_class.config_file_path).to eq(File.join(@tmpdir, 'config.yml'))
+    end
+
+    it 'CONFIG_FILE legacy constant still points to ~/.gamechanger (REGRESSION GUARD)' do
+      # External callers may still reference the constant; it never reflected runtime ENV.
+      expect(Gamechanger::Config::CONFIG_FILE).to eq(File.expand_path('~/.gamechanger/config.yml'))
     end
   end
 end

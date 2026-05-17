@@ -648,4 +648,69 @@ RSpec.describe Gamechanger::Storage do
         .to raise_error(Gamechanger::StorageError, /disk I\/O error/)
     end
   end
+
+  describe 'GAMECHANGER_HOME env var (verify-parity harness)' do
+    # The verify-parity harness sets GAMECHANGER_HOME so Ruby and Go read from the same fixture.
+
+    around do |example|
+      Dir.mktmpdir do |tmpdir|
+        @env_tmpdir = tmpdir
+        example.run
+      end
+    end
+
+    after { ENV.delete('GAMECHANGER_HOME') }
+
+    it 'uses GAMECHANGER_HOME when explicit data_dir is not provided' do
+      ENV['GAMECHANGER_HOME'] = @env_tmpdir
+      env_storage = described_class.new
+      expect(env_storage.data_dir).to eq(@env_tmpdir)
+      env_storage.close
+    end
+
+    it 'explicit data_dir argument overrides GAMECHANGER_HOME' do
+      ENV['GAMECHANGER_HOME'] = '/tmp/should-not-be-used'
+      override_storage = described_class.new(data_dir: @env_tmpdir)
+      expect(override_storage.data_dir).to eq(@env_tmpdir)
+      override_storage.close
+    end
+
+    it ':memory: data_dir overrides GAMECHANGER_HOME' do
+      ENV['GAMECHANGER_HOME'] = '/tmp/should-not-be-used'
+      mem_storage = described_class.new(data_dir: ':memory:')
+      expect(mem_storage.data_dir).to eq(':memory:')
+      mem_storage.close
+    end
+
+    it 'falls back to a Config.home_dir-resolved path when GAMECHANGER_HOME is unset (REGRESSION GUARD)' do
+      ENV.delete('GAMECHANGER_HOME')
+      stubbed_default = @env_tmpdir
+      allow(Gamechanger::Config).to receive(:home_dir).and_return(stubbed_default)
+      default_storage = described_class.new
+      expect(default_storage.data_dir).to eq(stubbed_default)
+      default_storage.close
+    end
+
+    it 'falls back to Config.home_dir when GAMECHANGER_HOME is empty string' do
+      ENV['GAMECHANGER_HOME'] = ''
+      stubbed_default = @env_tmpdir
+      allow(Gamechanger::Config).to receive(:home_dir).and_return(stubbed_default)
+      empty_storage = described_class.new
+      expect(empty_storage.data_dir).to eq(stubbed_default)
+      empty_storage.close
+    end
+
+    it 'creates the directory with 0700 permissions when GAMECHANGER_HOME points to a non-existent path' do
+      target = File.join(@env_tmpdir, 'fresh-home')
+      ENV['GAMECHANGER_HOME'] = target
+      env_storage = described_class.new
+      expect(env_storage.data_dir).to eq(target)
+      expect(Dir.exist?(target)).to be true
+      env_storage.close
+    end
+
+    it 'Storage::DATA_DIR legacy constant still points to ~/.gamechanger (REGRESSION GUARD)' do
+      expect(Gamechanger::Storage::DATA_DIR).to eq(File.expand_path('~/.gamechanger'))
+    end
+  end
 end

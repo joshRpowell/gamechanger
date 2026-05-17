@@ -2,3 +2,11 @@ coverage/
 .gstack/
 tmp/bootsnap/
 .claude/settings.local.json
+progress-json
+/gamechanger
+/anonymize-fixture
+# Scout Phase 1a (U1): HAR captures live per-developer; never commit.
+# Each developer records their own via web.gc.com DevTools → "Save all as HAR
+# with content" → scrub auth headers → extract response body to JSON.
+# Promotion to a committed (anonymized) corpus deferred until CI lands.
+testdata/har/
