@@ -55,7 +55,15 @@ module Gamechanger
         next if cached && cached['status'] == 'final' && !force
 
         sleep Client::RATE_LIMIT_SLEEP
-        raw_boxscore = client.game_pitcher_stats(game_id: parsed[:game_id])
+        begin
+          raw_boxscore = client.game_pitcher_stats(game_id: parsed[:game_id])
+        rescue NetworkError => e
+          # Boxscore not available yet (404) — skip this game's stats but keep
+          # the schedule row so the brief can still show it as upcoming/scheduled.
+          next if e.message.include?('404')
+
+          raise
+        end
         stats        = BoxscoreParser.new(raw_boxscore, team_slug: team_slug).pitcher_stats
         @storage.upsert_pitcher_stats(game_id: parsed[:game_id], stats: stats)
 

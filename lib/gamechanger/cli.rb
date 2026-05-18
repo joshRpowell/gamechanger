@@ -18,7 +18,8 @@ module Gamechanger
 
     desc 'setup', 'Configure Gamechanger credentials and team'
     option :email,       type: :string, desc: 'Account email'
-    option :password,    type: :string, desc: 'Account password'
+    option :password,    type: :string, desc: 'Account password (inline)'
+    option :'op-ref',    type: :string, desc: '1Password secret reference for password (e.g. op://Vault/Item/password)'
     option :'team-slug', type: :string, desc: 'Team identifier'
     def setup
       Commands::Setup.new(options: options, shell: shell).call

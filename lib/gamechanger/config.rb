@@ -28,7 +28,7 @@ module Gamechanger
       File.join(home_dir, 'session')
     end
 
-    attr_reader :email, :password, :team_id, :team_slug, :season, :device_id
+    attr_reader :email, :team_id, :team_slug, :season, :device_id, :password_op_ref
 
     def initialize(config_file: self.class.config_file_path)
       @config_file = config_file
@@ -37,14 +37,29 @@ module Gamechanger
     end
 
     def configured?
-      !email.nil? && !email.empty? && !password.nil? && !password.empty?
+      return false if email.nil? || email.empty?
+
+      !(@password.nil? || @password.empty?) || !(password_op_ref.nil? || password_op_ref.empty?)
     end
 
-    def save(email:, password:, team_id: nil, team_slug: nil, season: nil)
-      raise ConfigError, 'Email cannot be empty'    if email.to_s.strip.empty?
-      raise ConfigError, 'Password cannot be empty' if password.to_s.strip.empty?
+    # Returns the password, resolving via 1Password CLI if a `password_op_ref`
+    # is configured. Resolution is memoized per Config instance.
+    def password
+      return @password if @password && !@password.empty?
+      return nil if password_op_ref.nil? || password_op_ref.empty?
 
-      data = { 'email' => email.strip, 'password' => password.strip }
+      @resolved_op_password ||= resolve_op_password(password_op_ref)
+    end
+
+    def save(email:, password: nil, password_op_ref: nil, team_id: nil, team_slug: nil, season: nil)
+      raise ConfigError, 'Email cannot be empty' if email.to_s.strip.empty?
+      if password.to_s.strip.empty? && password_op_ref.to_s.strip.empty?
+        raise ConfigError, 'Either password or password_op_ref must be provided'
+      end
+
+      data = { 'email' => email.strip }
+      data['password']        = password.strip        unless password.to_s.strip.empty?
+      data['password_op_ref'] = password_op_ref.strip unless password_op_ref.to_s.strip.empty?
       data['team_id']   = team_id.to_s   if team_id
       data['team_slug'] = team_slug.to_s if team_slug
       data['season']    = season.to_i    if season
@@ -54,26 +69,55 @@ module Gamechanger
       load_config
     end
 
+    # Returns the access JWT if cached and not yet expired, else nil.
+    # Backwards-compatible with the legacy `<token>|<expires>` format from
+    # the pre-MFA auth flow; new sessions are YAML with separate access +
+    # refresh fields.
     def cached_token
-      session = self.class.session_file_path
-      return nil unless File.exist?(session)
+      session = load_session
+      return nil if session.nil?
 
-      token, expires_at = File.read(session).strip.split('|', 2)
+      token   = session['access_token']
+      expires = session['access_expires']
       return nil if token.nil? || token.empty?
-      return nil if expires_at && Time.now.to_i > expires_at.to_i
+      return nil if expires && Time.now.to_i > expires.to_i
 
       token
-    rescue StandardError
-      nil
     end
 
+    # Returns the refresh JWT if cached and not yet expired, else nil.
+    # Used to mint a fresh access token without re-running the full
+    # client-auth → user-auth → mfa-code → password flow.
+    def cached_refresh_token
+      session = load_session
+      return nil if session.nil?
+
+      token   = session['refresh_token']
+      expires = session['refresh_expires']
+      return nil if token.nil? || token.empty?
+      return nil if expires && Time.now.to_i > expires.to_i
+
+      token
+    end
+
+    # Persist the access token (and optionally a refresh token) returned by
+    # the auth flow. Existing refresh credentials are preserved when only
+    # an access token is supplied (e.g., after a refresh call that returned
+    # only access).
+    def cache_tokens(access_token:, access_expires:, refresh_token: nil, refresh_expires: nil)
+      existing = load_session || {}
+      data = {
+        'access_token'   => access_token,
+        'access_expires' => access_expires.to_i
+      }
+      data['refresh_token']   = refresh_token   || existing['refresh_token']
+      data['refresh_expires'] = (refresh_expires || existing['refresh_expires'])&.to_i
+      write_session(data)
+    end
+
+    # Back-compat shim for the old single-token API.
     def cache_token(token, expires_at: nil)
-      expires_at ||= Time.now.to_i + 3600  # fallback TTL if API doesn't provide expiry
-      session = self.class.session_file_path
-      FileUtils.mkdir_p(File.dirname(session), mode: 0o700)
-      File.open(session, File::WRONLY | File::CREAT | File::TRUNC, 0o600) do |f|
-        f.write("#{token}|#{expires_at}")
-      end
+      cache_tokens(access_token: token, access_expires: expires_at || (Time.now.to_i + 3600))
     end
 
     def clear_token
@@ -85,13 +129,16 @@ module Gamechanger
 
     def load_config
       unless File.exist?(@config_file)
-        @email = @password = @team_id = @season = nil
+        @email = @password = @password_op_ref = @team_id = @season = nil
+        @resolved_op_password = nil
         return
       end
 
       data = YAML.safe_load(File.read(@config_file), symbolize_names: false) || {}
-      @email     = data['email']
-      @password  = data['password']
+      @email           = data['email']
+      @password        = data['password']
+      @password_op_ref = data['password_op_ref']
+      @resolved_op_password = nil
       @team_id   = data['team_id']
       @team_slug = data['team_slug']  # short slug used as boxscore response key (e.g. wGP47FexatoQ)
       @season    = data['season'] || Time.now.year
@@ -100,6 +147,46 @@ module Gamechanger
       @device_id = data['device_id'] || generate_device_id
     rescue Psych::Exception => e
       raise ConfigError, "Malformed config at #{@config_file}: #{e.message}"
+    end
+
+    def load_session
+      session = self.class.session_file_path
+      return nil unless File.exist?(session)
+
+      raw = File.read(session).strip
+      return nil if raw.empty?
+
+      # New YAML format
+      if raw.start_with?('---') || raw.include?("\n")
+        YAML.safe_load(raw) || nil
+      # Legacy `<token>|<expires>` single-line format from pre-MFA auth.
+      # Treat as access-only with no refresh available.
+      else
+        token, expires_at = raw.split('|', 2)
+        { 'access_token' => token, 'access_expires' => expires_at&.to_i }
+      end
+    rescue StandardError
+      nil
+    end
+
+    def write_session(data)
+      session = self.class.session_file_path
+      FileUtils.mkdir_p(File.dirname(session), mode: 0o700)
+      File.open(session, File::WRONLY | File::CREAT | File::TRUNC, 0o600) do |f|
+        f.write(YAML.dump(data))
+      end
+    end
+
+    def resolve_op_password(ref)
+      require 'open3'
+      stdout, stderr, status = Open3.capture3('op', 'read', '--no-newline', ref)
+      unless status.success?
+        raise ConfigError, "1Password CLI failed to read #{ref}: #{stderr.strip}"
+      end
+
+      stdout
+    rescue Errno::ENOENT
+      raise ConfigError, "1Password CLI (`op`) not found in PATH but password_op_ref is set"
     end
 
     def generate_device_id

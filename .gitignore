@@ -10,3 +10,4 @@ progress-json
 # with content" → scrub auth headers → extract response body to JSON.
 # Promotion to a committed (anonymized) corpus deferred until CI lands.
 testdata/har/
+*.gem

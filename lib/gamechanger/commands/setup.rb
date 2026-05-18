@@ -17,21 +17,35 @@ module Gamechanger
         shell.say 'Gamechanger Setup', :cyan
         shell.say '─' * 40
 
-        email    = options[:email]    || ENV['GAMECHANGER_EMAIL']    || shell.ask('Email:')
-        password = options[:password] || ENV['GAMECHANGER_PASSWORD'] || shell.ask('Password:', echo: false)
-        shell.say ''
+        existing_cfg = Config.new
+        email_default  = existing_cfg.email
+        op_ref_default = existing_cfg.password_op_ref
+
+        email = options[:email] || ENV['GAMECHANGER_EMAIL'] ||
+                (email_default && !email_default.empty? ? email_default : shell.ask('Email:'))
+        op_ref = options[:'op-ref'] || ENV['GAMECHANGER_OP_REF'] || op_ref_default
+        password = nil
+        if op_ref.nil? || op_ref.empty?
+          password = options[:password] || ENV['GAMECHANGER_PASSWORD'] || shell.ask('Password:', echo: false)
+          shell.say ''
+        end
 
         shell.say 'Authenticating...', :cyan
         cfg = Config.new
-        cfg.save(email: email, password: password)
+        cfg.save(email: email, password: password, password_op_ref: op_ref)
         cfg.clear_token  # invalidate any cached token from previous credentials before re-authenticating
 
-        client = Client.new(config: cfg)
+        otp_prompt = lambda do
+          shell.say '', :cyan
+          shell.say 'A 6-digit verification code was sent to your email.', :cyan
+          shell.ask('Enter the code:').to_s.strip
+        end
+        client = Client.new(config: cfg, otp_prompt: otp_prompt)
         authenticate_or_exit(client)
 
         team_id, team_slug = discover_team(client)
 
-        cfg.save(email: email, password: password, team_id: team_id, team_slug: team_slug)
+        cfg.save(email: email, password: password, password_op_ref: op_ref, team_id: team_id, team_slug: team_slug)
         shell.say 'Configuration saved to ~/.gamechanger/config.yml', :green
         shell.say "Run `gamechanger pitches` to view this season's pitch counts."
       end
@@ -61,7 +75,7 @@ module Gamechanger
           elsif teams_list.length == 1
             team      = teams_list.first
             team_id   = team['id']
-            team_slug = team['slug'] || team['short_id']
+            team_slug = team['public_id'] || team['slug'] || team['short_id']
             shell.say "Team: #{team['name']} (#{team_id})", :green
           else
             shell.say 'Multiple teams found:', :cyan
@@ -71,7 +85,7 @@ module Gamechanger
             idx       = shell.ask('Which team? (enter number):').to_i - 1
             selected  = teams_list[idx]
             team_id   = selected&.dig('id')
-            team_slug = selected&.dig('slug') || selected&.dig('short_id')
+            team_slug = selected&.dig('public_id') || selected&.dig('slug') || selected&.dig('short_id')
           end
 
           if team_slug.nil?

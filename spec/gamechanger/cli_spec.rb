@@ -403,7 +403,7 @@ RSpec.describe Gamechanger::CLI do
   # ─── setup error paths ───────────────────────────────────────────────────
 
   describe '#setup' do
-    let(:cfg_double) { instance_double(Gamechanger::Config, save: nil, clear_token: nil) }
+    let(:cfg_double) { instance_double(Gamechanger::Config, save: nil, clear_token: nil, email: nil, password_op_ref: nil) }
     let(:client_double) { instance_double(Gamechanger::Client) }
 
     before do

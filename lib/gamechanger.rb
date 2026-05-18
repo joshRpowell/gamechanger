@@ -2,6 +2,7 @@
 
 require_relative 'gamechanger/version'
 require_relative 'gamechanger/config'
+require_relative 'gamechanger/signer'
 require_relative 'gamechanger/client'
 require_relative 'gamechanger/storage'
 require_relative 'gamechanger/boxscore_parser'

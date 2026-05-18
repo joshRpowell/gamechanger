@@ -68,6 +68,8 @@ RSpec.describe Gamechanger::Commands::Setup do
       allow(Gamechanger::Client).to receive(:new).and_return(client)
       allow(cfg).to receive(:save)
       allow(cfg).to receive(:clear_token)
+      allow(cfg).to receive(:email).and_return(nil)
+      allow(cfg).to receive(:password_op_ref).and_return(nil)
       allow(client).to receive(:authenticate)
       allow(client).to receive(:teams).and_return(
         [{ 'id' => 't1', 'name' => 'Mustangs', 'slug' => 'abc' }]

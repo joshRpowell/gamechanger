@@ -3,76 +3,169 @@
 require 'spec_helper'
 
 RSpec.describe Gamechanger::Client do
-  let(:config) do
+  def config_double(cached_token: nil, cached_refresh_token: nil, password: 'secret')
     instance_double(
       Gamechanger::Config,
-      email:        'test@example.com',
-      password:     'secret',
-      cached_token: nil,
-      team_id:      'team-123',
-      season:       2026,
-      device_id:    'abc123def456abc123def456abc123de'
+      email:                'test@example.com',
+      password:             password,
+      cached_token:         cached_token,
+      cached_refresh_token: cached_refresh_token,
+      team_id:              'team-123',
+      season:               2026,
+      device_id:            'abc123def456abc123def456abc123de'
     )
   end
-  subject(:client) { described_class.new(config: config) }
-
-  # NOTE: All endpoint paths below must be updated after Phase 0 spike
-  # to match the real Gamechanger API. See docs/research/gc-api-notes.md.
 
   describe '#authenticate' do
-    context 'when credentials are valid' do
-      before do
-        allow(config).to receive(:cache_token)
-        stub_request(:post, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::AUTH_PATH}")
-          .to_return(
-            status: 200,
-            body: JSON.generate({ 'token' => 'jwt-token-abc' }),
-            headers: { 'Content-Type' => 'application/json' }
-          )
-      end
+    context 'with a cached non-expired access token' do
+      let(:config) { config_double(cached_token: 'cached-access-jwt') }
+      subject(:client) { described_class.new(config: config) }
 
-      it 'returns a token' do
-        expect(client.authenticate).to eq('jwt-token-abc')
-      end
-
-      it 'caches the token' do
-        expect(config).to receive(:cache_token).with('jwt-token-abc', expires_at: nil)
-        client.authenticate
-      end
-    end
-
-    context 'when credentials are invalid (401)' do
-      before do
-        allow(config).to receive(:clear_token)
-        stub_request(:post, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::AUTH_PATH}")
-          .to_return(status: 401, body: JSON.generate({ 'error' => 'invalid credentials' }))
-      end
-
-      it 'raises AuthError' do
-        expect { client.authenticate }.to raise_error(Gamechanger::AuthError)
-      end
-    end
-
-    context 'when using a cached token' do
-      let(:config) do
-        instance_double(
-          Gamechanger::Config,
-          email:        'test@example.com',
-          password:     'secret',
-          cached_token: 'cached-token-xyz',
-          team_id:      'team-123',
-          season:       2026,
-          device_id:    'abc123def456abc123def456abc123de'
-        )
-      end
-
-      it 'returns the cached token without making a request' do
-        expect(client.authenticate).to eq('cached-token-xyz')
+      it 'returns the cached token without hitting the network' do
+        expect(client.authenticate).to eq('cached-access-jwt')
         expect(a_request(:post, /#{Regexp.escape(Gamechanger::Client::BASE_URL)}/)).not_to have_been_made
       end
     end
 
-    context 'when network is unavailable' do
+    context 'with a cached refresh token (no access token)' do
+      let(:config) { config_double(cached_refresh_token: 'refresh-jwt') }
+      subject(:client) { described_class.new(config: config) }
+
+      before do
+        allow(config).to receive(:cache_tokens)
+        stub_request(:post, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::AUTH_PATH}")
+          .to_return(
+            status: 200,
+            body: JSON.generate(
+              'type'    => 'token',
+              'access'  => { 'data' => 'fresh-access', 'expires' => 9999999999 },
+              'refresh' => { 'data' => 'rotated-refresh', 'expires' => 9999999999 }
+            ),
+            headers: { 'Content-Type' => 'application/json' }
+          )
+      end
+
+      it 'calls /auth with type=refresh and returns the new access token' do
+        expect(client.authenticate).to eq('fresh-access')
+        expect(WebMock).to have_requested(:post, "#{Gamechanger::Client::BASE_URL}/auth")
+          .with(body: hash_including('type' => 'refresh'))
+      end
+
+      it 'caches both the new access and rotated refresh tokens' do
+        expect(config).to receive(:cache_tokens).with(
+          access_token: 'fresh-access', access_expires: 9999999999,
+          refresh_token: 'rotated-refresh', refresh_expires: 9999999999
+        )
+        client.authenticate
+      end
+    end
+
+    context 'with no cached tokens (full interactive flow)' do
+      let(:config) { config_double }
+      subject(:client) do
+        described_class.new(config: config, otp_prompt: -> { '123456' })
+      end
+
+      before do
+        allow(config).to receive(:cache_tokens)
+        allow(config).to receive(:clear_token)
+
+        # Sequence 4 POSTs to /auth in flow order
+        stub_request(:post, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::AUTH_PATH}")
+          .to_return(
+            # 1. client-auth
+            { status: 200, body: JSON.generate('type' => 'client-token', 'token' => 'client-jwt', 'expires' => 9999999999),
+              headers: { 'Content-Type' => 'application/json' } },
+            # 2. user-auth
+            { status: 200, body: JSON.generate('type' => 'user-action-required', 'kind' => 'mfa'),
+              headers: { 'Content-Type' => 'application/json' } },
+            # 3. mfa-code
+            { status: 200, body: JSON.generate('type' => 'password-required'),
+              headers: { 'Content-Type' => 'application/json' } },
+            # 4. password
+            { status: 200, body: JSON.generate(
+              'type' => 'token',
+              'access'  => { 'data' => 'user-access-jwt', 'expires' => 9999999999 },
+              'refresh' => { 'data' => 'user-refresh-jwt', 'expires' => 9999999999 }
+            ), headers: { 'Content-Type' => 'application/json' } }
+          )
+      end
+
+      context 'on a trusted device (user-auth returns password-required immediately)' do
+        before do
+          stub_request(:post, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::AUTH_PATH}")
+            .to_return(
+              { status: 200, body: JSON.generate('token' => 'client-jwt', 'expires' => 9999999999),
+                headers: { 'Content-Type' => 'application/json' } },
+              { status: 200, body: JSON.generate('type' => 'password-required'),
+                headers: { 'Content-Type' => 'application/json' } },
+              { status: 200, body: JSON.generate(
+                'access'  => { 'data' => 'trusted-access', 'expires' => 9999999999 },
+                'refresh' => { 'data' => 'trusted-refresh', 'expires' => 9999999999 }
+              ), headers: { 'Content-Type' => 'application/json' } }
+            )
+        end
+
+        it 'skips the MFA prompt and goes straight to password' do
+          c = described_class.new(config: config, otp_prompt: -> { raise 'should not prompt' })
+          expect(c.authenticate).to eq('trusted-access')
+        end
+      end
+
+      it 'runs all four /auth POSTs and returns the user access token' do
+        expect(client.authenticate).to eq('user-access-jwt')
+        expect(WebMock).to have_requested(:post, "#{Gamechanger::Client::BASE_URL}/auth").times(4)
+      end
+
+      it 'sends the OTP code from the prompt callable' do
+        client.authenticate
+        expect(WebMock).to have_requested(:post, "#{Gamechanger::Client::BASE_URL}/auth")
+          .with(body: hash_including('type' => 'mfa-code', 'code' => '123456'))
+      end
+
+      it 'sends a chained gc-signature header on every signed call' do
+        client.authenticate
+        expect(WebMock).to have_requested(:post, "#{Gamechanger::Client::BASE_URL}/auth")
+          .with { |req| req.headers['Gc-Signature']&.include?('.') }
+          .times(4)
+      end
+
+      it 'raises AuthError if no OTP is provided' do
+        c = described_class.new(config: config, otp_prompt: -> { '' })
+        expect { c.authenticate }.to raise_error(Gamechanger::AuthError, /No OTP/)
+      end
+    end
+
+    context 'when the API returns 401 mid-flow' do
+      let(:config) { config_double(cached_refresh_token: 'expired-refresh') }
+      subject(:client) do
+        described_class.new(config: config, otp_prompt: -> { '999999' })
+      end
+
+      before do
+        allow(config).to receive(:cache_tokens)
+        allow(config).to receive(:clear_token)
+        # First call (refresh) → 401, then full 4-step flow succeeds
+        stub_request(:post, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::AUTH_PATH}")
+          .to_return(
+            { status: 401, body: '' },
+            { status: 200, body: JSON.generate('token' => 'c'), headers: { 'Content-Type' => 'application/json' } },
+            { status: 200, body: JSON.generate('type' => 'user-action-required', 'kind' => 'mfa'), headers: { 'Content-Type' => 'application/json' } },
+            { status: 200, body: JSON.generate('type' => 'password-required'), headers: { 'Content-Type' => 'application/json' } },
+            { status: 200, body: JSON.generate('access' => { 'data' => 'recovered', 'expires' => 9999999999 }),
+              headers: { 'Content-Type' => 'application/json' } }
+          )
+      end
+
+      it 'falls back from refresh failure to full interactive flow' do
+        expect(client.authenticate).to eq('recovered')
+      end
+    end
+
+    context 'when the network is unavailable' do
+      let(:config) { config_double }
+      subject(:client) { described_class.new(config: config) }
+
       before do
         stub_request(:post, /#{Regexp.escape(Gamechanger::Client::BASE_URL)}/).to_raise(Errno::ECONNREFUSED)
       end
@@ -82,7 +175,10 @@ RSpec.describe Gamechanger::Client do
       end
     end
 
-    context 'when request times out' do
+    context 'when the request times out' do
+      let(:config) { config_double }
+      subject(:client) { described_class.new(config: config) }
+
       before do
         stub_request(:post, /#{Regexp.escape(Gamechanger::Client::BASE_URL)}/).to_raise(Net::OpenTimeout)
       end
@@ -94,17 +190,8 @@ RSpec.describe Gamechanger::Client do
   end
 
   describe '#game_pitcher_stats' do
-    let(:config) do
-      instance_double(
-        Gamechanger::Config,
-        email:        'test@example.com',
-        password:     'secret',
-        cached_token: 'valid-token',
-        team_id:      'team-123',
-        season:       2026,
-        device_id:    'abc123def456abc123def456abc123de'
-      )
-    end
+    let(:config) { config_double(cached_token: 'valid-token') }
+    subject(:client) { described_class.new(config: config) }
 
     let(:stats_response) do
       [
@@ -130,20 +217,11 @@ RSpec.describe Gamechanger::Client do
   end
 
   describe 'rate limit handling' do
-    let(:config) do
-      instance_double(
-        Gamechanger::Config,
-        email:        'test@example.com',
-        password:     'secret',
-        cached_token: 'valid-token',
-        team_id:      'team-123',
-        season:       2026,
-        device_id:    'abc123def456abc123def456abc123de'
-      )
-    end
+    let(:config) { config_double(cached_token: 'valid-token') }
+    subject(:client) { described_class.new(config: config) }
 
     before do
-      allow(client).to receive(:sleep)  # prevent actual sleeping in tests
+      allow(client).to receive(:sleep)
       stub_request(:get, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::TEAMS_PATH}")
         .to_return(
           { status: 429, body: 'Too Many Requests' },
@@ -157,17 +235,8 @@ RSpec.describe Gamechanger::Client do
   end
 
   describe 'error handling edge cases' do
-    let(:config) do
-      instance_double(
-        Gamechanger::Config,
-        email:        'test@example.com',
-        password:     'secret',
-        cached_token: 'valid-token',
-        team_id:      'team-123',
-        season:       2026,
-        device_id:    'abc123def456abc123def456abc123de'
-      )
-    end
+    let(:config) { config_double(cached_token: 'valid-token') }
+    subject(:client) { described_class.new(config: config) }
 
     it 'raises NetworkError on SSL error' do
       stub_request(:get, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::TEAMS_PATH}")

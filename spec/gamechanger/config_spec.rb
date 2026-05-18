@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
+require 'open3'
 
 RSpec.describe Gamechanger::Config do
   subject(:config) { described_class.new(config_file: config_file) }
@@ -85,24 +86,51 @@ RSpec.describe Gamechanger::Config do
   end
 
   describe '#cache_token' do
-    it 'writes token and expiry to session file' do
+    it 'persists the token so cached_token reads it back' do
       config.cache_token('abc123', expires_at: 9999999999)
-      content = File.read(session_file)
-      expect(content).to eq('abc123|9999999999')
+      expect(config.cached_token).to eq('abc123')
     end
 
     it 'uses a default TTL when expires_at is nil' do
       config.cache_token('abc123')
-      content = File.read(session_file)
-      token, expiry = content.split('|')
-      expect(token).to eq('abc123')
-      expect(expiry.to_i).to be > Time.now.to_i
+      expect(config.cached_token).to eq('abc123')
     end
 
     it 'creates session file with 0600 permissions' do
       config.cache_token('abc123', expires_at: 9999999999)
       perms = File.stat(session_file).mode & 0o777
       expect(perms).to eq(0o600)
+    end
+  end
+
+  describe '#cache_tokens / #cached_refresh_token' do
+    it 'stores access + refresh tokens and reads them back' do
+      config.cache_tokens(
+        access_token: 'a-tok', access_expires: 9999999999,
+        refresh_token: 'r-tok', refresh_expires: 9999999999
+      )
+      expect(config.cached_token).to eq('a-tok')
+      expect(config.cached_refresh_token).to eq('r-tok')
+    end
+
+    it 'preserves prior refresh token when caching only access' do
+      config.cache_tokens(access_token: 'a1', access_expires: 9999999999,
+                          refresh_token: 'r1', refresh_expires: 9999999999)
+      config.cache_tokens(access_token: 'a2', access_expires: 9999999999)
+      expect(config.cached_token).to eq('a2')
+      expect(config.cached_refresh_token).to eq('r1')
+    end
+
+    it 'returns nil for expired refresh token' do
+      config.cache_tokens(access_token: 'a', access_expires: 9999999999,
+                          refresh_token: 'r', refresh_expires: Time.now.to_i - 1)
+      expect(config.cached_refresh_token).to be_nil
+    end
+
+    it 'reads legacy single-token text format for backwards compat' do
+      File.write(session_file, "legacy-tok|#{Time.now.to_i + 3600}")
+      expect(config.cached_token).to eq('legacy-tok')
+      expect(config.cached_refresh_token).to be_nil
     end
   end
 
@@ -115,6 +143,52 @@ RSpec.describe Gamechanger::Config do
 
     it 'does nothing when session file does not exist' do
       expect { config.clear_token }.not_to raise_error
+    end
+  end
+
+  describe '1Password password resolution' do
+    it 'is configured when only password_op_ref is set' do
+      config.save(email: 'a@b.com', password_op_ref: 'op://Vault/Item/password')
+      expect(config.configured?).to be true
+    end
+
+    it 'raises when neither password nor password_op_ref is given' do
+      expect { config.save(email: 'a@b.com') }
+        .to raise_error(Gamechanger::ConfigError, /Either password or password_op_ref/)
+    end
+
+    it 'resolves password via `op read` when only op ref is set' do
+      config.save(email: 'a@b.com', password_op_ref: 'op://Vault/Item/password')
+      allow(Open3).to receive(:capture3)
+        .with('op', 'read', '--no-newline', 'op://Vault/Item/password')
+        .and_return(['secret-from-op', '', instance_double(Process::Status, success?: true)])
+      expect(config.password).to eq('secret-from-op')
+    end
+
+    it 'memoizes the resolved password (only one `op read` call)' do
+      config.save(email: 'a@b.com', password_op_ref: 'op://Vault/Item/password')
+      expect(Open3).to receive(:capture3).once
+        .and_return(['secret', '', instance_double(Process::Status, success?: true)])
+      2.times { config.password }
+    end
+
+    it 'prefers inline password over op ref when both are present' do
+      config.save(email: 'a@b.com', password: 'inline', password_op_ref: 'op://Vault/Item/password')
+      expect(Open3).not_to receive(:capture3)
+      expect(config.password).to eq('inline')
+    end
+
+    it 'raises ConfigError when op CLI fails' do
+      config.save(email: 'a@b.com', password_op_ref: 'op://Vault/Item/password')
+      allow(Open3).to receive(:capture3)
+        .and_return(['', 'not signed in', instance_double(Process::Status, success?: false)])
+      expect { config.password }.to raise_error(Gamechanger::ConfigError, /not signed in/)
+    end
+
+    it 'raises ConfigError when op CLI is not installed' do
+      config.save(email: 'a@b.com', password_op_ref: 'op://Vault/Item/password')
+      allow(Open3).to receive(:capture3).and_raise(Errno::ENOENT)
+      expect { config.password }.to raise_error(Gamechanger::ConfigError, /not found in PATH/)
     end
   end
 
