@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-18
+
+### Added — MFA-aware auth + 1Password integration
+
+Gamechanger's API moved to a multi-step MFA-required auth flow with HMAC-signed requests. The old `email + password → token` call now 401s silently. This release rebuilds the auth pipeline end-to-end so the gem keeps working.
+
+- `gamechanger setup` now runs the full 5-step flow: `client-auth` → `user-auth` (triggers OTP email) → prompt user for the 6-digit code → `mfa-code` → `password` → receives access + refresh JWTs.
+- Once authenticated, the refresh token mints new access tokens for ~14 days without re-prompting for the OTP, so day-to-day commands like `gamechanger refresh` stay non-interactive.
+- New `Gamechanger::Signer` module computes the `gc-signature` header (HMAC-SHA256 with previous-signature chaining) for every `/auth` POST. Reverse-engineered from the GC web bundle and verified byte-identical against captured live requests.
+- Optional 1Password CLI integration: set `password_op_ref: op://Vault/Item/password` in `~/.gamechanger/config.yml` instead of an inline password. Resolved lazily via `op read` and memoized.
+
+### Changed
+
+- Session file (`~/.gamechanger/session`) is now YAML with separate access + refresh tokens and their expirations. Legacy single-token `<token>|<expires>` format still reads for backwards compat.
+- `Config#save` now accepts either `password:` or `password_op_ref:` (one is required).
+- `gamechanger setup` defaults email and op-ref from any existing saved config so re-runs only prompt for what's missing.
+- Team auto-detect during setup now reads `public_id` (the actual GC slug field), falling back to `slug` / `short_id`.
+
+### Fixed
+
+- Syncer no longer crashes on the first game that has no boxscore yet — 404s are skipped so the rest of the sync proceeds.
+- Gemspec exclude list now covers `.gstack/` and `.claude/`, so `gem build` doesn't fail on tracked-but-deleted files from local tooling.
+- `sqlite3` dependency loosened to `>= 1.7, < 3.0` so the gem installs cleanly on Ruby 3.4.
+
 ### Added — Go CLI port (experimental, side-by-side with Ruby gem)
 
 A parallel Go implementation of the CLI is being developed on `experiment/cli-printing-press`. This is a checkpoint of foundation-through-sync work; the Ruby gem under `lib/` and `exe/gamechanger` are unchanged.
