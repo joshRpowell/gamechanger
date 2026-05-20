@@ -7,8 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [0.4.0] - 2026-05-20
 
+### Added — Fielding positions
+
+The boxscore response GameChanger already returns carries each player's defensive position-stint history inline in the `lineup` group, but the parser was discarding it. This release surfaces that data end-to-end so `gamechanger hitting` shows each player's most-recent defensive role alongside their bat.
+
+- `gamechanger hitting` now has a `Pos` column showing the player's most-recent completed game's position string (e.g., `SS, P` for a player who started at short and moved to the mound). Empty cell when the player didn't take the field in their most recent appearance.
+- Multi-position players are first-class — the stint order is preserved exactly as GameChanger reports it.
+- v4 schema migration adds a `game_fielding_positions` table with one row per (game, player, stint). Existing v3 caches upgrade additively on next CLI run; no data loss path.
+- `BatterStatsParser#fielding_stints` parses the `lineup.stats[].player_text` field with a known-positions allow-list (`P, C, 1B, 2B, 3B, SS, LF, CF, RF, DH, EH`). Unknown codes are logged and skipped rather than crashing the sync.
+- JSON output (`gamechanger hitting --format json`) emits `positions` as an array per row, not a joined string, so downstream consumers can format however they want.
 - `--sort COL` and `--desc` flags on `hitting`, `pitches`, and `equity` for column-ordered reports. Stored columns and computed metrics (AVG, OBP, Strike%) sort uniformly; nils sort last in both directions. Run `gamechanger help <command>` for the per-report column keys.
 
 ## [0.3.0] - 2026-05-18
