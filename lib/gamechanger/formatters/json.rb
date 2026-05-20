@@ -146,7 +146,8 @@ module Gamechanger
             avg:           ab > 0 ? (hits.to_f / ab).round(3) : 0.0,
             obp:           (ab + walks) > 0 ? ((hits + walks).to_f / (ab + walks)).round(3) : 0.0,
             seven_day_obp: s7_obp&.round(3),
-            trend:         trend
+            trend:         trend,
+            positions:     Array(r['positions'])
           }
         end
         JSON.pretty_generate(data)
