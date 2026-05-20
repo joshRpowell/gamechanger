@@ -46,7 +46,7 @@ module Gamechanger
       [2, <<~SQL],
         ALTER TABLE game_pitcher_stats ADD COLUMN strikes_thrown INTEGER;
       SQL
-      [3, <<~SQL]
+      [3, <<~SQL],
         CREATE TABLE game_batter_stats (
           id          INTEGER PRIMARY KEY,
           game_id     TEXT NOT NULL REFERENCES games(game_id) ON DELETE CASCADE,
@@ -60,6 +60,20 @@ module Gamechanger
         );
         CREATE INDEX idx_gbs_batter ON game_batter_stats (batter_name);
         CREATE INDEX idx_gbs_game   ON game_batter_stats (game_id);
+      SQL
+      [4, <<~SQL]
+        CREATE TABLE game_fielding_positions (
+          id           INTEGER PRIMARY KEY,
+          game_id      TEXT NOT NULL REFERENCES games(game_id) ON DELETE CASCADE,
+          player_id    TEXT NOT NULL,
+          player_name  TEXT NOT NULL,
+          stint_index  INTEGER NOT NULL,
+          position     TEXT NOT NULL,
+          fetched_at   TEXT NOT NULL,
+          UNIQUE(game_id, player_id, stint_index)
+        );
+        CREATE INDEX idx_gfp_game ON game_fielding_positions (game_id);
+        CREATE INDEX idx_gfp_name ON game_fielding_positions (player_name);
       SQL
     ].freeze
 
@@ -157,6 +171,59 @@ module Gamechanger
           SQL
                            stat[:hits].to_i, stat[:walks].to_i, stat[:strikeouts].to_i, now])
         end
+      end
+    end
+
+    # Upsert per-stint fielding positions for a game. Replaces all rows for
+    # the game (delete-then-insert) so stint-count changes on re-sync do not
+    # leave stale rows.
+    # @param game_id [String]
+    # @param stints  [Array<Hash>] each with keys: player_id, player_name, positions (Array<String>)
+    def upsert_fielding_positions(game_id:, stints:)
+      now = iso_now
+      db.transaction(:immediate) do
+        db.execute('DELETE FROM game_fielding_positions WHERE game_id = ?', [game_id])
+        stints.each do |stint|
+          positions = stint[:positions] || []
+          positions.each_with_index do |pos, idx|
+            db.execute(<<~SQL, [game_id, stint[:player_id], stint[:player_name], idx, pos, now])
+              INSERT INTO game_fielding_positions
+                (game_id, player_id, player_name, stint_index, position, fetched_at)
+              VALUES (?, ?, ?, ?, ?, ?)
+            SQL
+          end
+        end
+      end
+    end
+
+    # Returns a { player_name => ["Pos1","Pos2",...] } map for each player who fielded
+    # in their most-recent completed game within the configured season.
+    # Tiebreaker for same-date games is fetched_at DESC.
+    # Values are arrays preserving stint order; formatters join for display.
+    # @return [Hash{String => Array<String>}]
+    def fielding_positions_most_recent_by_name
+      rows = db.execute(<<~SQL, [season_start, next_season_start])
+        WITH latest AS (
+          SELECT gfp.player_name,
+                 gfp.game_id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY gfp.player_name
+                   ORDER BY g.game_date DESC, gfp.fetched_at DESC
+                 ) AS rn
+          FROM game_fielding_positions gfp
+          JOIN games g ON g.game_id = gfp.game_id
+          WHERE g.game_date >= ? AND g.game_date < ?
+        )
+        SELECT gfp.player_name, gfp.stint_index, gfp.position
+        FROM latest l
+        JOIN game_fielding_positions gfp
+          ON gfp.game_id = l.game_id AND gfp.player_name = l.player_name
+        WHERE l.rn = 1
+        ORDER BY gfp.player_name, gfp.stint_index ASC
+      SQL
+
+      rows.each_with_object({}) do |row, h|
+        (h[row['player_name']] ||= []) << row['position']
       end
     end
 
