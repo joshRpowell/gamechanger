@@ -313,6 +313,28 @@ RSpec.describe Gamechanger::Formatters::Table do
       output = fmt.hitting(rows)
       expect(output).to include('→')
     end
+
+    it 'renders the Pos column header' do
+      rows = [{ 'batter_name' => 'Bob', 'games' => 1, 'total_ab' => 1,
+                'total_hits' => 0, 'total_walks' => 0, 'total_k' => 0, 'positions' => ['SS'] }]
+      expect(fmt.hitting(rows)).to include('Pos')
+    end
+
+    it 'joins multi-stint positions with comma-space' do
+      rows = [{ 'batter_name' => 'Multi', 'games' => 1, 'total_ab' => 1,
+                'total_hits' => 0, 'total_walks' => 0, 'total_k' => 0,
+                'positions' => ['1B', '2B', 'P'] }]
+      expect(fmt.hitting(rows)).to include('1B, 2B, P')
+    end
+
+    it 'renders an empty cell when positions is empty or missing' do
+      rows = [{ 'batter_name' => 'Bench', 'games' => 1, 'total_ab' => 1,
+                'total_hits' => 0, 'total_walks' => 0, 'total_k' => 0, 'positions' => [] }]
+      # Smoke test: rendering does not crash and the Pos column header is still present.
+      output = fmt.hitting(rows)
+      expect(output).to include('Bench')
+      expect(output).to include('Pos')
+    end
   end
 
   # ── batter_games ──────────────────────────────────────────────────────────

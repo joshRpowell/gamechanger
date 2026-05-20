@@ -67,8 +67,12 @@ module Gamechanger
         stats        = BoxscoreParser.new(raw_boxscore, team_slug: team_slug).pitcher_stats
         @storage.upsert_pitcher_stats(game_id: parsed[:game_id], stats: stats)
 
-        batter_stats = BatterStatsParser.new(raw_boxscore, team_slug: team_slug).batter_stats
+        batter_parser = BatterStatsParser.new(raw_boxscore, team_slug: team_slug)
+        batter_stats  = batter_parser.batter_stats
         @storage.upsert_batter_stats(game_id: parsed[:game_id], stats: batter_stats) if batter_stats.any?
+
+        fielding_stints = batter_parser.fielding_stints
+        @storage.upsert_fielding_positions(game_id: parsed[:game_id], stints: fielding_stints) if fielding_stints.any?
 
         if stats.any?
           @storage.upsert_game(parsed.merge(status: 'final'))

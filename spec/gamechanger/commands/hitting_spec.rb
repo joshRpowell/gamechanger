@@ -11,6 +11,7 @@ RSpec.describe Gamechanger::Commands::Hitting do
 
   before do
     allow(Gamechanger::Storage).to receive(:new).and_return(storage)
+    allow(storage).to receive(:fielding_positions_most_recent_by_name).and_return({})
     allow(Gamechanger::Config).to receive(:new).and_return(
       instance_double(Gamechanger::Config, season: 2026)
     )
@@ -65,6 +66,37 @@ RSpec.describe Gamechanger::Commands::Hitting do
         cmd = described_class.new(options: { format: 'table', sort: 'bogus' }, shell: shell)
         expect { cmd.call }.to raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
         expect(shell).to have_received(:say_error).with(/Unknown sort key 'bogus'/, :red)
+      end
+    end
+
+    context 'positions column' do
+      let(:rows) { [{ 'batter_name' => 'Bob', 'games' => 1, 'total_ab' => 3, 'total_hits' => 1, 'total_walks' => 0, 'total_k' => 1 }] }
+
+      before { allow(storage).to receive(:season_batting_summary).and_return(rows) }
+
+      it "merges the player's most-recent positions onto each row" do
+        allow(storage).to receive(:fielding_positions_most_recent_by_name)
+          .and_return({ 'Bob' => ['SS', 'P'] })
+        formatter = instance_spy(Gamechanger::Formatters::Table, hitting: '')
+        allow(command).to receive(:build_formatter).and_return(formatter)
+
+        command.call
+
+        expect(formatter).to have_received(:hitting) do |passed_rows|
+          expect(passed_rows.first['positions']).to eq(['SS', 'P'])
+        end
+      end
+
+      it 'sets positions to an empty array when the player has no recent fielding' do
+        allow(storage).to receive(:fielding_positions_most_recent_by_name).and_return({})
+        formatter = instance_spy(Gamechanger::Formatters::Table, hitting: '')
+        allow(command).to receive(:build_formatter).and_return(formatter)
+
+        command.call
+
+        expect(formatter).to have_received(:hitting) do |passed_rows|
+          expect(passed_rows.first['positions']).to eq([])
+        end
       end
     end
   end

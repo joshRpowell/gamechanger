@@ -45,6 +45,28 @@ RSpec.describe Gamechanger::Formatters::Markdown do
       expect(output).to include('| Batter')
       expect(output).to include('Bob Jones')
     end
+
+    it 'renders the Pos column with joined position string' do
+      rows = [{
+        'batter_name' => 'Bob', 'games' => 1, 'total_ab' => 1,
+        'total_hits' => 0, 'total_walks' => 0, 'total_k' => 0,
+        'positions' => ['SS', 'P']
+      }]
+      output = fmt.hitting(rows)
+      expect(output).to include('Pos')
+      expect(output).to include('SS, P')
+    end
+
+    it 'renders an empty Pos cell when positions is empty' do
+      rows = [{
+        'batter_name' => 'Bench', 'games' => 1, 'total_ab' => 1,
+        'total_hits' => 0, 'total_walks' => 0, 'total_k' => 0,
+        'positions' => []
+      }]
+      output = fmt.hitting(rows)
+      expect(output).to include('Pos')
+      expect(output).to include('Bench')
+    end
   end
 
   describe '#availability' do

@@ -41,6 +41,8 @@ module Gamechanger
           shell.say 'No batting data in cache. Run `gamechanger refresh` to sync.', :yellow
           exit 1
         end
+        positions_map = storage.fielding_positions_most_recent_by_name
+        rows.each { |r| r['positions'] = positions_map[r['batter_name']] || [] }
         rows = apply_sort(rows, HITTING_SORT_KEYS)
         puts build_formatter.hitting(rows)
       end

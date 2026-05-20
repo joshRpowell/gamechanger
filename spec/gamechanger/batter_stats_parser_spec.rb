@@ -98,4 +98,97 @@ RSpec.describe Gamechanger::BatterStatsParser do
       }.to raise_error(Gamechanger::APIShapeError, /wrong-slug/)
     end
   end
+
+  describe '#fielding_stints' do
+    let(:response) do
+      {
+        'wGP47FexatoQ' => {
+          'players' => [
+            { 'id' => 'p1', 'first_name' => 'Mason',  'last_name' => 'Marrero', 'number' => '7' },
+            { 'id' => 'p2', 'first_name' => 'Jase',   'last_name' => 'Passino', 'number' => '12' },
+            { 'id' => 'p3', 'first_name' => 'Alex',   'last_name' => 'Chen',    'number' => '22' },
+            { 'id' => 'p4', 'first_name' => 'Ben',    'last_name' => 'Doe',     'number' => '5' },
+            { 'id' => 'p5', 'first_name' => 'Cal',    'last_name' => 'Roe',     'number' => '6' }
+          ],
+          'groups' => [
+            {
+              'category' => 'lineup',
+              'stats' => [
+                { 'player_id' => 'p1', 'player_text' => '(SS)',           'stats' => { 'AB' => 3 } },
+                { 'player_id' => 'p2', 'player_text' => '(1B, 2B, 1B, P)', 'stats' => { 'AB' => 4 } },
+                { 'player_id' => 'p3', 'player_text' => '( SS , P )',     'stats' => { 'AB' => 3 } },
+                { 'player_id' => 'p4', 'player_text' => '',               'stats' => { 'AB' => 0 } },
+                { 'player_id' => 'p5', 'player_text' => '(SS, ZZ, P)',    'stats' => { 'AB' => 2 } }
+              ]
+            }
+          ]
+        }
+      }
+    end
+
+    subject(:parser) { described_class.new(response, team_slug: 'wGP47FexatoQ') }
+
+    it 'parses a single-position player into one stint' do
+      mason = parser.fielding_stints.find { |s| s[:player_id] == 'p1' }
+      expect(mason[:positions]).to eq(['SS'])
+      expect(mason[:player_name]).to eq('Mason Marrero')
+    end
+
+    it 'preserves stint order for multi-position players' do
+      jase = parser.fielding_stints.find { |s| s[:player_id] == 'p2' }
+      expect(jase[:positions]).to eq(['1B', '2B', '1B', 'P'])
+    end
+
+    it 'tolerates whitespace around tokens and parens' do
+      alex = parser.fielding_stints.find { |s| s[:player_id] == 'p3' }
+      expect(alex[:positions]).to eq(['SS', 'P'])
+    end
+
+    it 'omits players whose player_text is empty' do
+      expect(parser.fielding_stints.map { |s| s[:player_id] }).not_to include('p4')
+    end
+
+    it 'logs and drops unknown position codes, keeping known ones' do
+      expect { @result = parser.fielding_stints }.to output(/ignoring unknown position code "ZZ"/).to_stderr
+      cal = @result.find { |s| s[:player_id] == 'p5' }
+      expect(cal[:positions]).to eq(['SS', 'P'])
+    end
+
+    it 'omits players whose tokens are all unknown' do
+      response['wGP47FexatoQ']['groups'].first['stats'] << {
+        'player_id' => 'p6', 'player_text' => '(ZZ, YY)', 'stats' => { 'AB' => 0 }
+      }
+      response['wGP47FexatoQ']['players'] << { 'id' => 'p6', 'first_name' => 'No', 'last_name' => 'One', 'number' => '99' }
+
+      expect { @result = parser.fielding_stints }.to output(/unknown position code/).to_stderr
+      expect(@result.map { |s| s[:player_id] }).not_to include('p6')
+    end
+
+    it 'returns empty array when lineup group is absent' do
+      response['wGP47FexatoQ']['groups'] = []
+      expect(parser.fielding_stints).to eq([])
+    end
+
+    it 'returns empty array when lineup stats are empty' do
+      response['wGP47FexatoQ']['groups'].first['stats'] = []
+      expect(parser.fielding_stints).to eq([])
+    end
+
+    it 'skips rows whose player_id is not in the players array' do
+      response['wGP47FexatoQ']['groups'].first['stats'] << {
+        'player_id' => 'unknown', 'player_text' => '(SS)', 'stats' => {}
+      }
+      ids = parser.fielding_stints.map { |s| s[:player_id] }
+      expect(ids).not_to include('unknown')
+    end
+
+    it 'recognizes DH and EH codes' do
+      response['wGP47FexatoQ']['groups'].first['stats'] << {
+        'player_id' => 'p4', 'player_text' => '(DH, EH)', 'stats' => {}
+      }
+      # p4 already exists in players; just override player_text via the new row
+      result = parser.fielding_stints.find { |s| s[:player_id] == 'p4' }
+      expect(result[:positions]).to eq(['DH', 'EH'])
+    end
+  end
 end

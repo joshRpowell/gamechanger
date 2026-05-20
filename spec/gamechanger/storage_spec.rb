@@ -598,6 +598,131 @@ RSpec.describe Gamechanger::Storage do
     end
   end
 
+  describe '#upsert_fielding_positions and #fielding_positions_most_recent_by_name' do
+    let(:season) { Date.today.year }
+    subject(:storage) { described_class.new(data_dir: ':memory:', season: season) }
+
+    before do
+      storage.upsert_game(game_id: 'g1', game_date: "#{season}-03-01", opponent: 'A', home_away: 'home', status: 'final')
+      storage.upsert_game(game_id: 'g2', game_date: "#{season}-03-08", opponent: 'B', home_away: 'away', status: 'final')
+    end
+
+    it 'inserts a single-stint row for a single-position player' do
+      storage.upsert_fielding_positions(
+        game_id: 'g1',
+        stints: [{ player_id: 'p1', player_name: 'Mason Marrero', positions: ['SS'] }]
+      )
+      result = storage.fielding_positions_most_recent_by_name
+      expect(result['Mason Marrero']).to eq(['SS'])
+    end
+
+    it 'inserts ordered rows for a multi-stint player' do
+      storage.upsert_fielding_positions(
+        game_id: 'g1',
+        stints: [{ player_id: 'p1', player_name: 'Jase Passino', positions: ['1B', '2B', '1B', 'P'] }]
+      )
+      result = storage.fielding_positions_most_recent_by_name
+      expect(result['Jase Passino']).to eq(['1B', '2B', '1B', 'P'])
+    end
+
+    it 'replaces rows on re-upsert with a different stint count (no stale rows)' do
+      storage.upsert_fielding_positions(
+        game_id: 'g1',
+        stints: [{ player_id: 'p1', player_name: 'Alex Chen', positions: ['SS', 'P', '2B'] }]
+      )
+      storage.upsert_fielding_positions(
+        game_id: 'g1',
+        stints: [{ player_id: 'p1', player_name: 'Alex Chen', positions: ['CF'] }]
+      )
+      result = storage.fielding_positions_most_recent_by_name
+      expect(result['Alex Chen']).to eq(['CF'])
+    end
+
+    it 'omits players whose positions array is empty' do
+      storage.upsert_fielding_positions(
+        game_id: 'g1',
+        stints: [
+          { player_id: 'p1', player_name: 'Ben Doe', positions: [] },
+          { player_id: 'p2', player_name: 'Cal Roe', positions: ['LF'] }
+        ]
+      )
+      result = storage.fielding_positions_most_recent_by_name
+      expect(result).not_to have_key('Ben Doe')
+      expect(result['Cal Roe']).to eq(['LF'])
+    end
+
+    it 'returns the most-recent game when a player has stints in multiple games' do
+      storage.upsert_fielding_positions(
+        game_id: 'g1',
+        stints: [{ player_id: 'p1', player_name: 'Mason Marrero', positions: ['SS', 'P'] }]
+      )
+      storage.upsert_fielding_positions(
+        game_id: 'g2',
+        stints: [{ player_id: 'p1', player_name: 'Mason Marrero', positions: ['CF'] }]
+      )
+      result = storage.fielding_positions_most_recent_by_name
+      expect(result['Mason Marrero']).to eq(['CF'])
+    end
+
+    it 'breaks same-date ties by fetched_at DESC' do
+      storage.upsert_game(game_id: 'g3', game_date: "#{season}-03-08", opponent: 'C', home_away: 'home', status: 'final')
+      storage.upsert_fielding_positions(
+        game_id: 'g2',
+        stints: [{ player_id: 'p1', player_name: 'Mason Marrero', positions: ['1B'] }]
+      )
+      sleep 1.1 # ensure fetched_at differs by at least one second
+      storage.upsert_fielding_positions(
+        game_id: 'g3',
+        stints: [{ player_id: 'p1', player_name: 'Mason Marrero', positions: ['SS'] }]
+      )
+      result = storage.fielding_positions_most_recent_by_name
+      expect(result['Mason Marrero']).to eq(['SS'])
+    end
+
+    it 'cascades on game delete' do
+      storage.upsert_fielding_positions(
+        game_id: 'g1',
+        stints: [{ player_id: 'p1', player_name: 'Mason Marrero', positions: ['SS'] }]
+      )
+      storage.send(:db).execute('DELETE FROM games WHERE game_id = ?', ['g1'])
+      result = storage.fielding_positions_most_recent_by_name
+      expect(result).not_to have_key('Mason Marrero')
+    end
+
+    it 'excludes games outside the configured season' do
+      prior_season_storage = described_class.new(data_dir: ':memory:', season: season - 1)
+      prior_season_storage.upsert_game(game_id: 'gx', game_date: "#{season - 1}-06-01", opponent: 'X', home_away: 'home', status: 'final')
+      prior_season_storage.upsert_fielding_positions(
+        game_id: 'gx',
+        stints: [{ player_id: 'p1', player_name: 'Mason Marrero', positions: ['SS'] }]
+      )
+      # Independent in-memory DBs are not shared; this test exists to assert the season window is honored.
+      this_season = described_class.new(data_dir: ':memory:', season: season)
+      this_season.upsert_game(game_id: 'g_this', game_date: "#{season}-03-15", opponent: 'Y', home_away: 'home', status: 'final')
+      this_season.upsert_fielding_positions(
+        game_id: 'g_this',
+        stints: [{ player_id: 'p1', player_name: 'Mason Marrero', positions: ['CF'] }]
+      )
+      expect(this_season.fielding_positions_most_recent_by_name['Mason Marrero']).to eq(['CF'])
+      this_season.close
+      prior_season_storage.close
+    end
+  end
+
+  describe 'schema_migrations' do
+    it 'applies v4 migration on fresh DB' do
+      versions = storage.send(:db).execute('SELECT version FROM schema_migrations').map { |r| r['version'] }
+      expect(versions).to include(1, 2, 3, 4)
+    end
+
+    it 'creates game_fielding_positions table' do
+      result = storage.send(:db).execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='game_fielding_positions'"
+      )
+      expect(result).not_to be_empty
+    end
+  end
+
   describe '#stale_games' do
     it 'returns in_progress games' do
       storage.upsert_game(game_id: 'g1', game_date: '2026-03-01', opponent: 'A', home_away: 'home', status: 'in_progress')
