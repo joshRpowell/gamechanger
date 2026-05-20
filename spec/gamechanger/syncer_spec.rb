@@ -89,7 +89,7 @@ RSpec.describe Gamechanger::Syncer do
           {
             'category' => 'lineup',
             'stats' => [
-              { 'player_id' => 'p2', 'stats' => { 'AB' => 3, 'H' => 2, 'BB' => 0, 'K' => 1 } }
+              { 'player_id' => 'p2', 'player_text' => '(SS, P)', 'stats' => { 'AB' => 3, 'H' => 2, 'BB' => 0, 'K' => 1 } }
             ]
           }
         ]
@@ -157,6 +157,27 @@ RSpec.describe Gamechanger::Syncer do
         rows = storage.season_batting_summary
         expect(rows.length).to eq(1)
         expect(rows.first['batter_name']).to eq('Bob Jones')
+      end
+
+      it 'stores fielding positions parsed from player_text' do
+        syncer.run
+        positions = storage.fielding_positions_most_recent_by_name
+        expect(positions['Bob Jones']).to eq(['SS', 'P'])
+      end
+
+      it 'does not crash when no players have player_text populated' do
+        empty_field_boxscore = boxscore_response.dup
+        empty_field_boxscore['wGP47FexatoQ'] = empty_field_boxscore['wGP47FexatoQ'].dup
+        empty_field_boxscore['wGP47FexatoQ']['groups'] = empty_field_boxscore['wGP47FexatoQ']['groups'].map do |g|
+          next g unless g['category'] == 'lineup'
+
+          g.merge('stats' => g['stats'].map { |s| s.merge('player_text' => '') })
+        end
+        stub_request(:get, "https://api.team-manager.gc.com/game-stream-processing/game-uuid-1/boxscore")
+          .to_return(status: 200, body: empty_field_boxscore.to_json)
+
+        expect { syncer.run }.not_to raise_error
+        expect(storage.fielding_positions_most_recent_by_name).to be_empty
       end
 
       it 'marks games with stats as final' do
