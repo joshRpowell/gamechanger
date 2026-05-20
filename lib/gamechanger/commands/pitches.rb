@@ -29,9 +29,32 @@ module Gamechanger
 
       private
 
+      SEASON_SORT_KEYS = {
+        'name'    => ->(r) { r['pitcher_name'] },
+        'gp'      => ->(r) { r['games_pitched'].to_i },
+        'pitches' => ->(r) { r['total_pitches'].to_i },
+        'strikes' => ->(r) { r['total_strikes'].to_i },
+        'balls'   => ->(r) { r['total_pitches'].to_i - r['total_strikes'].to_i },
+        'pct'     => lambda do |r|
+          pitches = r['total_pitches'].to_i
+          pitches.positive? ? r['total_strikes'].to_f / pitches : nil
+        end,
+        'avg'     => ->(r) { r['avg_per_game'].to_f },
+        '7day'    => ->(r) { r['seven_day_total'].to_i },
+        'last'    => ->(r) { r['last_outing'] }
+      }.freeze
+
       def show_season(storage, formatter)
         rows = storage.season_summary
+        rows = apply_sort(rows, SEASON_SORT_KEYS)
         puts formatter.season_summary(rows)
+      end
+
+      def apply_sort(rows, key_map)
+        Sorting.apply(rows, options[:sort], key_map, desc: options[:desc])
+      rescue Sorting::InvalidSortKey => e
+        shell.say_error e.message, :red
+        exit 1
       end
 
       def show_pitcher(name, storage, formatter)

@@ -30,6 +30,8 @@ module Gamechanger
     option :game,        type: :string,  desc: 'Show a single game by date (YYYY-MM-DD)'
     option :game_number, type: :numeric, default: 1, desc: 'Game number for doubleheaders (1 or 2)'
     option :refresh,     type: :boolean, default: false, desc: 'Force re-fetch of non-final games from Gamechanger'
+    option :sort,        type: :string,  desc: 'Sort season summary by column key (name, gp, pitches, strikes, balls, pct, avg, 7day, last)'
+    option :desc,        type: :boolean, default: false, desc: 'Sort descending'
     def pitches
       Commands::Pitches.new(options: options, shell: shell).call
     end
@@ -59,6 +61,8 @@ module Gamechanger
 
     desc 'hitting', 'Show season batting stats'
     option :player, type: :string, desc: 'Single player game-by-game breakdown (substring match)'
+    option :sort,   type: :string, desc: 'Sort season stats by column key (name, g, ab, h, bb, k, avg, obp)'
+    option :desc,   type: :boolean, default: false, desc: 'Sort descending'
     def hitting
       Commands::Hitting.new(options: options, shell: shell).call
     end
@@ -70,6 +74,8 @@ module Gamechanger
     end
 
     desc 'equity', 'Show playing time participation for all players'
+    option :sort, type: :string,  desc: 'Sort by column key (name, bat, batago, batted, pitch, pitchago)'
+    option :desc, type: :boolean, default: false, desc: 'Sort descending'
     def equity
       Commands::Equity.new(options: options, shell: shell).call
     end

@@ -18,13 +18,38 @@ module Gamechanger
 
       private
 
+      HITTING_SORT_KEYS = {
+        'name' => ->(r) { r['batter_name'] },
+        'g'    => ->(r) { r['games'].to_i },
+        'ab'   => ->(r) { r['total_ab'].to_i },
+        'h'    => ->(r) { r['total_hits'].to_i },
+        'bb'   => ->(r) { r['total_walks'].to_i },
+        'k'    => ->(r) { r['total_k'].to_i },
+        'avg'  => lambda do |r|
+          ab = r['total_ab'].to_i
+          ab.positive? ? r['total_hits'].to_f / ab : nil
+        end,
+        'obp'  => lambda do |r|
+          denom = r['total_ab'].to_i + r['total_walks'].to_i
+          denom.positive? ? (r['total_hits'].to_i + r['total_walks'].to_i).to_f / denom : nil
+        end
+      }.freeze
+
       def show_hitting(storage)
         rows = storage.season_batting_summary
         if rows.empty?
           shell.say 'No batting data in cache. Run `gamechanger refresh` to sync.', :yellow
           exit 1
         end
+        rows = apply_sort(rows, HITTING_SORT_KEYS)
         puts build_formatter.hitting(rows)
+      end
+
+      def apply_sort(rows, key_map)
+        Sorting.apply(rows, options[:sort], key_map, desc: options[:desc])
+      rescue Sorting::InvalidSortKey => e
+        shell.say_error e.message, :red
+        exit 1
       end
 
       def show_batter(name, storage)
