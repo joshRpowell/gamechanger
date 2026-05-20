@@ -283,3 +283,65 @@ keyed by **team slug** (the short identifier stored in `config.yml` as
 - Whether `/teams/:uuid/schedule` accepts a `season=YYYY` query param
 - All fields in the `event` object beyond what's currently used
 - Full shape of the `pregame_data` object
+
+---
+
+## Boxscore additional groups (probe 2026-05-20)
+
+**Probed:** one completed game (final state), via `GET /game-stream-processing/{game_id}/boxscore` with the standard `gc-token` + `gc-app-name: web` headers. Probe artifact: `testdata/har/boxscore-probe-1.json` (gitignored).
+
+**Disposition: (b) — present in unexpected shape.**
+
+Fielding/defensive position data **is** in the boxscore response we already consume. It is **not** in a separate `fielding` group as initially hypothesized. It is in the `player_text` field on each row of the existing `lineup` group's `stats[]` array. The `BoxscoreParser` currently parses everything else on these rows (`AB`, `H`, `BB`, `SO`) but discards `player_text`.
+
+### Groups inventory
+
+The top-level response is keyed by `team_slug`. Each team object has exactly two keys: `groups` and `players`. The `groups[]` array contains exactly two entries:
+
+| `category` | Notes |
+|---|---|
+| `lineup` | Batter stats per player; `player_text` carries position-stint history. |
+| `pitching` | Pitcher stats per player; `extra[]` carries `WP`, `#P`, `TS`, `BF`. |
+
+No other categories appear. There is no `fielding`, `defense`, `defensive_innings`, or `position` group.
+
+### `lineup.stats[].player_text` shape
+
+Comma-separated position codes in parentheses, in the **order** the player occupied them across innings. Standard baseball codes: `P, C, 1B, 2B, 3B, SS, LF, CF, RF, DH, EH`.
+
+Examples (sanitized from probe):
+
+| `player_text` | Meaning |
+|---|---|
+| `(2B)` | Played 2B the entire game (single stint). |
+| `(SS, P)` | Started at SS, moved to P (one position change). |
+| `(1B, 2B, 1B, P)` | 1B → 2B → 1B → P across four stints. |
+| `(LF, RF, 3B)` | LF → RF → 3B. |
+| `` (empty) | Did not take the field — bench / non-starter / pinch hitter. |
+
+**Granularity:** position-stint, not per-inning. The response does not carry inning numbers per stint. The number of comma-separated values is the number of position changes plus one. Two stints does not necessarily mean innings 1–3 then 4–6 — the timing is unrecoverable from this field alone.
+
+**Per-row fields confirmed:**
+
+```jsonc
+{
+  "player_id": "<uuid>",
+  "player_text": "(SS, P)",   // ← position stint history
+  "is_primary": true,          // appears on lineup rows only; semantics unconfirmed
+  "stats": { "AB": 3, "R": 0, "H": 0, "RBI": 1, "BB": 0, "SO": 0 }
+}
+```
+
+### Other findings from the same probe
+
+- `pitching.extra[]` carries pitch-count aggregates (`#P`, `TS`, `BF`, `WP`) as a sibling of `stats[]` — already consumed by the existing parser for `#P` and `TS`. No `defensive_innings` field anywhere; this answers item 3 of the Phase 0 watch-probe TODO negatively for the completed-game case.
+- `players[]` carries `{first_name, last_name, id, number}` only — no position field on the roster object.
+- `pitching.stats[].player_text` is always `""` — position data does not appear in the pitching group.
+- Response is keyed by `team_slug` for both teams in the game (own team UUID and opponent slug), so positions for both sides are available from a single boxscore call. This is the same channel the dormant `opposing_roster.position` column (Go side) could be backfilled from.
+
+### Implications
+
+- **No new endpoint is needed** to acquire per-game fielding positions. Extend `BoxscoreParser` to surface `player_text` on lineup rows.
+- **Per-inning fielding is still unknown.** This probe was a completed game; the live-state question (whether `player_text` updates incrementally during a game, or only finalizes) is still open and belongs to the Phase 0 watch probe.
+- **Multi-position players are first-class** in the source data. Storage and formatters should not assume one player → one position per game.
+- **Follow-up brainstorm should now fire** for the parser extension + storage decision (per-stint list vs primary-position-only) + first formatter unlock. See parent ideation `docs/ideation/2026-05-20-fielding-positions-data-acquisition.md` — disposition (b) routes there.
