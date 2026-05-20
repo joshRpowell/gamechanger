@@ -110,6 +110,18 @@ bundle exec gamechanger progress --pitcher "Smith"
 bundle exec gamechanger equity
 ```
 
+### Sorting reports
+
+`hitting`, `pitches`, and `equity` accept `--sort COL` (with optional `--desc`) to order the table by any column. Computed metrics (AVG, OBP, Strike%) are supported alongside stored columns; missing values always sort last.
+
+```bash
+bundle exec gamechanger hitting --sort avg --desc        # top hitters first
+bundle exec gamechanger pitches --sort 7day --desc       # heaviest 7-day workload first
+bundle exec gamechanger equity  --sort batago --desc     # players furthest from last AB
+```
+
+Run `gamechanger help <command>` to see the column keys for each report.
+
 ### Output formats
 
 All commands support `--format table` (default), `--format json`, and `--format markdown`:

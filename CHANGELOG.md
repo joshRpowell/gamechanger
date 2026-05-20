@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--sort COL` and `--desc` flags on `hitting`, `pitches`, and `equity` for column-ordered reports. Stored columns and computed metrics (AVG, OBP, Strike%) sort uniformly; nils sort last in both directions. Run `gamechanger help <command>` for the per-report column keys.
+
 ## [0.3.0] - 2026-05-18
 
 ### Added — MFA-aware auth + 1Password integration
