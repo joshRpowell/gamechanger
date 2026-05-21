@@ -6,12 +6,13 @@ module Gamechanger
       def season_summary(rows)
         return "_No pitch data found for this season._" if rows.empty?
 
-        headings = ['Pitcher', 'GP', 'Pitches', 'Strikes', 'Balls', 'Strike%', 'Avg/Game', '7-Day', 'Last Outing']
+        headings = ['Pitcher', 'GP', 'Pitches', 'Strikes', 'Balls', 'Strike%', '%IP', 'Avg/Game', '7-Day', 'Last Outing']
         data = rows.map do |r|
-          strikes = r['total_strikes'].to_i
-          pitches = r['total_pitches'].to_i
-          balls   = pitches - strikes
-          pct     = pitches > 0 ? format('%.0f%%', strikes * 100.0 / pitches) : '—'
+          strikes  = r['total_strikes'].to_i
+          pitches  = r['total_pitches'].to_i
+          balls    = pitches - strikes
+          pct      = pitches > 0 ? format('%.0f%%', strikes * 100.0 / pitches) : '—'
+          ip_share = r['ip_share'].nil? ? '—' : format('%.1f%%', r['ip_share'])
           [
             r['pitcher_name'],
             r['games_pitched'],
@@ -19,6 +20,7 @@ module Gamechanger
             strikes,
             balls,
             pct,
+            ip_share,
             r['avg_per_game'],
             r['seven_day_total'],
             r['last_outing'] || '—'
@@ -159,16 +161,17 @@ module Gamechanger
       def hitting(rows)
         return "_No batting data found for this season._" if rows.empty?
 
-        headings = ['Batter', 'G', 'AB', 'H', 'BB', 'K', 'AVG', 'OBP', 'Trend', 'Pos']
+        headings = ['Batter', 'G', 'PA', 'AB', 'H', 'BB', 'K', 'AVG', 'OBP', 'Trend', 'Pos']
         data = rows.map do |r|
           ab    = r['total_ab'].to_i
           hits  = r['total_hits'].to_i
           walks = r['total_walks'].to_i
           k     = r['total_k'].to_i
+          pa    = r['pa'].to_i
           avg   = ab > 0 ? format('.%03d', (hits.to_f / ab * 1000).round) : '.000'
           obp   = (ab + walks) > 0 ? format('.%03d', ((hits + walks).to_f / (ab + walks) * 1000).round) : '.000'
           pos   = Array(r['positions']).join(', ')
-          [r['batter_name'], r['games'], ab, hits, walks, k, avg, obp, trend_arrow(r), pos]
+          [r['batter_name'], r['games'], pa, ab, hits, walks, k, avg, obp, trend_arrow(r), pos]
         end
 
         md_table(headings, data)

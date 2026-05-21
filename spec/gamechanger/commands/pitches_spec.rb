@@ -43,6 +43,60 @@ RSpec.describe Gamechanger::Commands::Pitches do
     end
   end
 
+  describe '#call season summary %IP column' do
+    let(:rows) do
+      [
+        { 'pitcher_name' => 'Ace',    'games_pitched' => 3, 'total_pitches' => 100, 'total_strikes' => 60,
+          'total_ip' => 8.0, 'avg_per_game' => 33.3, 'seven_day_total' => 0, 'last_outing' => '2026-05-10' },
+        { 'pitcher_name' => 'Middle', 'games_pitched' => 2, 'total_pitches' => 50,  'total_strikes' => 30,
+          'total_ip' => 4.0, 'avg_per_game' => 25.0, 'seven_day_total' => 0, 'last_outing' => '2026-05-08' },
+        { 'pitcher_name' => 'Closer', 'games_pitched' => 4, 'total_pitches' => 80,  'total_strikes' => 50,
+          'total_ip' => 8.0, 'avg_per_game' => 20.0, 'seven_day_total' => 0, 'last_outing' => '2026-05-12' }
+      ]
+    end
+
+    before { allow(storage).to receive(:season_summary).and_return(rows) }
+
+    it 'derives ip_share per row as total_ip / team_total_ip * 100' do
+      formatter = instance_spy(Gamechanger::Formatters::Table, season_summary: '')
+      allow(command).to receive(:build_formatter).and_return(formatter)
+      command.call
+      expect(formatter).to have_received(:season_summary) do |passed_rows|
+        ace    = passed_rows.find { |r| r['pitcher_name'] == 'Ace' }
+        middle = passed_rows.find { |r| r['pitcher_name'] == 'Middle' }
+        expect(ace['ip_share']).to be_within(0.001).of(40.0)
+        expect(middle['ip_share']).to be_within(0.001).of(20.0)
+        # Sum across all rows ≈ 100%
+        expect(passed_rows.sum { |r| r['ip_share'] }).to be_within(0.001).of(100.0)
+      end
+    end
+
+    it 'sorts by ip_share descending with --sort ip_share --desc' do
+      cmd = described_class.new(options: { format: 'table', sort: 'ip_share', desc: true }, shell: shell)
+      formatter = instance_spy(Gamechanger::Formatters::Table, season_summary: '')
+      allow(cmd).to receive(:build_formatter).and_return(formatter)
+      cmd.call
+      expect(formatter).to have_received(:season_summary) do |passed_rows|
+        # Ace and Closer both 40%, Middle 20% — verify Middle is last
+        expect(passed_rows.last['pitcher_name']).to eq('Middle')
+      end
+    end
+
+    it 'sets ip_share to nil for every row when team_total_ip is 0' do
+      zero_rows = [
+        { 'pitcher_name' => 'NoIP', 'games_pitched' => 0, 'total_pitches' => 0, 'total_strikes' => 0,
+          'total_ip' => 0, 'avg_per_game' => 0, 'seven_day_total' => 0, 'last_outing' => nil }
+      ]
+      allow(storage).to receive(:season_summary).and_return(zero_rows)
+      formatter = instance_spy(Gamechanger::Formatters::Table, season_summary: '')
+      allow(command).to receive(:build_formatter).and_return(formatter)
+      command.call
+      expect(formatter).to have_received(:season_summary) do |passed_rows|
+        expect(passed_rows.first['ip_share']).to be_nil
+      end
+    end
+  end
+
   describe '#call with --game' do
     it 'rejects malformed date strings to stdout and exits 1' do
       cmd = described_class.new(options: { game: 'bad', game_number: 1 }, shell: shell)

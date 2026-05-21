@@ -139,6 +139,7 @@ module Gamechanger
           {
             batter_name:   r['batter_name'],
             games:         r['games'],
+            pa:            r['pa'].to_i,
             at_bats:       ab,
             hits:          hits,
             walks:         walks,

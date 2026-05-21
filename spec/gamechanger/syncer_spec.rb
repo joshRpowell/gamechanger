@@ -89,7 +89,7 @@ RSpec.describe Gamechanger::Syncer do
           {
             'category' => 'lineup',
             'stats' => [
-              { 'player_id' => 'p2', 'player_text' => '(SS, P)', 'stats' => { 'AB' => 3, 'H' => 2, 'BB' => 0, 'K' => 1 } }
+              { 'player_id' => 'p2', 'player_text' => '(SS, P)', 'stats' => { 'AB' => 3, 'H' => 2, 'BB' => 0, 'SO' => 1 } }
             ]
           }
         ]

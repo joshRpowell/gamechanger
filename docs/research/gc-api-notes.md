@@ -345,3 +345,47 @@ Examples (sanitized from probe):
 - **Per-inning fielding is still unknown.** This probe was a completed game; the live-state question (whether `player_text` updates incrementally during a game, or only finalizes) is still open and belongs to the Phase 0 watch probe.
 - **Multi-position players are first-class** in the source data. Storage and formatters should not assume one player → one position per game.
 - **Follow-up brainstorm should now fire** for the parser extension + storage decision (per-stint list vs primary-position-only) + first formatter unlock. See parent ideation `docs/ideation/2026-05-20-fielding-positions-data-acquisition.md` — disposition (b) routes there.
+
+---
+
+## Probe — batter stat keys for PA computation (2026-05-21)
+
+**Goal:** confirm which batter stat keys the boxscore exposes, before implementing a `PA` (plate appearances) column on the `hitting` report.
+
+**Method:** fetched `/game-stream-processing/{game_id}/boxscore` for 15 completed games from the local cache, took the union of per-player `stats` hash keys (inside lineup-group `stats[]`) and the union of `lineup.extra[].stat_name` entries.
+
+### Findings
+
+**Per-player `stats` hash — consistent across all 15 games:**
+
+```
+AB, BB, H, R, RBI, SO
+```
+
+Note: the key is `SO`, not `K`. **Pre-existing bug:** `lib/gamechanger/batter_stats_parser.rb:43` reads `stats['K'].to_i`, which is always nil. The local cache's `game_batter_stats.strikeouts` column is 0 for all 306 rows — strikeouts have never actually been populated. Spec fixtures use `'K'` and so don't catch the drift. Fix during the PA work or in a separate one-line PR.
+
+**`lineup.extra[].stat_name` — union across 15 games:**
+
+```
+2B, 3B, CS, E, HBP, HR, SB, TB
+```
+
+`HBP` is present but lives in `extra[]`, not in the per-player `stats` hash. Shape mirrors `2B/3B/TB/SB/CS`:
+
+```json
+{
+  "stat_name": "HBP",
+  "stats": [
+    { "player_id": "<uuid>", "value": 1 }
+  ]
+}
+```
+
+`SF`, `SH`, `SAC` do NOT appear under any name in any of the 15 games sampled. Either the API does not surface sacrifices, or sacrifices are rare enough that none occurred in this window — but the consistent shape and the fact that other low-frequency events (E, HR) do appear strongly suggests the former.
+
+### Implications for the PA column
+
+- True PA computable as `AB + BB + HBP`. Sacrifice flies/bunts unavailable from this endpoint.
+- HBP requires reading `lineup.extra[]` and joining by `player_id` to the lineup row — the parser already does this pattern in `BoxscoreParser` for `#P`/`TS`/`BF` on the pitching group.
+- Storage: add `hbp INTEGER` to `game_batter_stats` in migration v5. Compute `PA = at_bats + walks + hbp` at query time (no stored `pa` column needed — derived).
+- The fix-`K`-vs-`SO` parser correction is the right time to also start populating strikeouts correctly. After the fix lands, recommend users `gamechanger refresh` to repopulate historical rows.

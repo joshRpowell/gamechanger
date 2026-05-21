@@ -9,7 +9,11 @@ module Gamechanger
   #
   # Usage:
   #   BatterStatsParser.new(response, team_slug: 'wGP47FexatoQ').batter_stats
-  #   # => [{ batter_name: "Mason Marrero", at_bats: 3, hits: 2, walks: 1, strikeouts: 0 }, ...]
+  #   # => [{ batter_name: "Mason Marrero", at_bats: 3, hits: 2, walks: 1, strikeouts: 0, hbp: 1 }, ...]
+  #
+  # HBP is sourced from the lineup group's `extra[]` array (stat_name == "HBP"),
+  # joined to lineup rows by player_id. The boxscore endpoint does not expose
+  # sacrifices (SF/SH/SAC) under any name; PA = AB + BB + HBP is computed downstream.
   #
   # Returns [] when the lineup group is absent or its stats array is empty
   # (e.g. game not yet finalized in GameChanger's scoring system).
@@ -24,11 +28,13 @@ module Gamechanger
       raise APIShapeError, "Team '#{team_slug}' not found in boxscore response" if @data.nil?
     end
 
-    # @return [Array<Hash>] batter stats with keys: batter_name, at_bats, hits, walks, strikeouts
+    # @return [Array<Hash>] batter stats with keys: batter_name, at_bats, hits, walks, strikeouts, hbp
     def batter_stats
       players = build_player_index
       lineup  = lineup_group
       return [] if lineup.nil?
+
+      hbp_by_player_id = extra_stat_by_player_id(lineup, 'HBP')
 
       (lineup['stats'] || []).filter_map do |row|
         player = players[row['player_id']]
@@ -40,7 +46,8 @@ module Gamechanger
           at_bats:     stats['AB'].to_i,
           hits:        stats['H'].to_i,
           walks:       stats['BB'].to_i,
-          strikeouts:  stats['K'].to_i
+          strikeouts:  stats['SO'].to_i,
+          hbp:         hbp_by_player_id[row['player_id']].to_i
         }
       end
     end
@@ -102,6 +109,17 @@ module Gamechanger
 
     def lineup_group
       (@data['groups'] || []).find { |g| g['category'] == 'lineup' }
+    end
+
+    # Builds a player_id → value lookup from a group's `extra[]` array for a given stat_name.
+    # Returns an empty hash when the entry is absent (e.g. no HBP that game).
+    def extra_stat_by_player_id(group, stat_name)
+      entry = (group['extra'] || []).find { |e| e['stat_name'] == stat_name }
+      return {} if entry.nil?
+
+      (entry['stats'] || []).each_with_object({}) do |row, idx|
+        idx[row['player_id']] = row['value']
+      end
     end
   end
 end

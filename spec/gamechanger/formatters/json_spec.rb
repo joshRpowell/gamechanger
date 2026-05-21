@@ -29,6 +29,18 @@ RSpec.describe Gamechanger::Formatters::Json do
       result = JSON.parse(fmt.season_summary(rows))
       expect(result.first.keys).to all(be_a(String))
     end
+
+    it 'passes ip_share through as a numeric value' do
+      rows = [{ 'pitcher_name' => 'Ace', 'ip_share' => 42.3 }]
+      result = JSON.parse(fmt.season_summary(rows))
+      expect(result.first['ip_share']).to be_within(0.001).of(42.3)
+    end
+
+    it 'passes ip_share through as null when nil' do
+      rows = [{ 'pitcher_name' => 'NoIP', 'ip_share' => nil }]
+      result = JSON.parse(fmt.season_summary(rows))
+      expect(result.first['ip_share']).to be_nil
+    end
   end
 
   # ── pitcher_games ─────────────────────────────────────────────────────────
@@ -299,6 +311,16 @@ RSpec.describe Gamechanger::Formatters::Json do
       }]
       result = JSON.parse(fmt.hitting(rows))
       expect(result.first['positions']).to eq(['SS', 'P'])
+    end
+
+    it 'emits pa from the row' do
+      rows = [{
+        'batter_name' => 'Slugger', 'games' => 2,
+        'total_ab' => 4, 'total_hits' => 2, 'total_walks' => 2, 'total_k' => 0,
+        'pa' => 7
+      }]
+      result = JSON.parse(fmt.hitting(rows))
+      expect(result.first['pa']).to eq(7)
     end
 
     it 'emits positions as an empty array when missing or empty' do
