@@ -303,6 +303,31 @@ RSpec.describe Gamechanger::Formatters::Json do
       expect(result.first['trend']).to eq('→')
     end
 
+    it 'emits singles/doubles/triples/home_runs from the row aggregates' do
+      rows = [{
+        'batter_name' => 'Power', 'games' => 1,
+        'total_ab' => 5, 'total_hits' => 5, 'total_walks' => 0, 'total_k' => 0,
+        'total_1b' => 3, 'total_2b' => 1, 'total_3b' => 0, 'total_hr' => 1,
+        'seven_day_ab' => 0, 'seven_day_hits' => 0, 'seven_day_walks' => 0
+      }]
+      result = JSON.parse(fmt.hitting(rows))
+      expect(result.first['singles']).to eq(3)
+      expect(result.first['doubles']).to eq(1)
+      expect(result.first['triples']).to eq(0)
+      expect(result.first['home_runs']).to eq(1)
+    end
+
+    it 'clamps negative singles to 0' do
+      rows = [{
+        'batter_name' => 'Glitch', 'games' => 1,
+        'total_ab' => 2, 'total_hits' => 2, 'total_walks' => 0, 'total_k' => 0,
+        'total_1b' => -1, 'total_2b' => 3, 'total_3b' => 0, 'total_hr' => 0,
+        'seven_day_ab' => 0, 'seven_day_hits' => 0, 'seven_day_walks' => 0
+      }]
+      result = JSON.parse(fmt.hitting(rows))
+      expect(result.first['singles']).to eq(0)
+    end
+
     it 'emits positions as an array of strings' do
       rows = [{
         'batter_name' => 'Bob', 'games' => 1, 'total_ab' => 1,

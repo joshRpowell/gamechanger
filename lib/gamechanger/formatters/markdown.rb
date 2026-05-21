@@ -161,17 +161,21 @@ module Gamechanger
       def hitting(rows)
         return "_No batting data found for this season._" if rows.empty?
 
-        headings = ['Batter', 'G', 'PA', 'AB', 'H', 'BB', 'K', 'AVG', 'OBP', 'Trend', 'Pos']
+        headings = ['Batter', 'G', 'PA', 'AB', 'H', '1B', '2B', '3B', 'HR', 'BB', 'K', 'AVG', 'OBP', 'Trend', 'Pos']
         data = rows.map do |r|
           ab    = r['total_ab'].to_i
           hits  = r['total_hits'].to_i
           walks = r['total_walks'].to_i
           k     = r['total_k'].to_i
           pa    = r['pa'].to_i
+          b1    = [r['total_1b'].to_i, 0].max
+          b2    = r['total_2b'].to_i
+          b3    = r['total_3b'].to_i
+          hr    = r['total_hr'].to_i
           avg   = ab > 0 ? format('.%03d', (hits.to_f / ab * 1000).round) : '.000'
           obp   = (ab + walks) > 0 ? format('.%03d', ((hits + walks).to_f / (ab + walks) * 1000).round) : '.000'
           pos   = Array(r['positions']).join(', ')
-          [r['batter_name'], r['games'], pa, ab, hits, walks, k, avg, obp, trend_arrow(r), pos]
+          [r['batter_name'], r['games'], pa, ab, hits, b1, b2, b3, hr, walks, k, avg, obp, trend_arrow(r), pos]
         end
 
         md_table(headings, data)
