@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-21
+
 ### Added
 - Rate stats on `gamechanger pitches`: `ERA`, `WHIP`, `K/9` shown by default; `BB/9`, `BAA`, `P/IP` gated behind `--advanced`. All sortable via the existing `--sort` flag (`era`, `whip`, `k9`, `bb9`, `baa`, `p_ip`, `p_bf`).
 - `gamechanger pitches --pitcher NAME` per-outing view: now shows raw counts (`BF`, `H`, `R`, `ER`, `BB`, `SO`) per outing plus a cumulative footer with derived ERA, WHIP, K/9, and BAA. Per-outing rates intentionally omitted (single-outing rates are too noisy at youth-game sample sizes).
