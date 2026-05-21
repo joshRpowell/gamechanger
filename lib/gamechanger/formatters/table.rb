@@ -7,62 +7,104 @@ module Gamechanger
     class Table
       TABLE_STYLE = { border_x: '─', border_i: '┼', border_y: '│' }.freeze
 
-      def season_summary(rows)
+      def season_summary(rows, advanced: false)
         return "No pitch data found for this season." if rows.empty?
 
+        base_headings = ['Pitcher', 'GP', 'Pitches', 'Strikes', 'Balls', 'S%',
+                         'ERA', 'WHIP', 'K/9']
+        adv_headings  = advanced ? ['BB/9', 'BAA', 'P/IP'] : []
+        tail_headings = ['%IP', 'Avg/Game', '7-Day', 'Last Outing']
+
         t = Terminal::Table.new(
-          headings: ['Pitcher', 'GP', 'Pitches', 'Strikes', 'Balls', 'Strike%', '%IP', 'Avg/Game', '7-Day', 'Last Outing'],
+          headings: base_headings + adv_headings + tail_headings,
           rows: rows.map do |r|
             strikes  = r['total_strikes'].to_i
             pitches  = r['total_pitches'].to_i
             balls    = pitches - strikes
             pct      = pitches > 0 ? format('%.0f%%', strikes * 100.0 / pitches) : '—'
             ip_share = r['ip_share'].nil? ? '—' : format('%.1f%%', r['ip_share'])
-            [
-              r['pitcher_name'],
-              r['games_pitched'],
-              pitches,
-              strikes,
-              balls,
-              pct,
-              ip_share,
-              r['avg_per_game'],
-              r['seven_day_total'],
-              r['last_outing'] || '—'
+
+            base_cells = [
+              r['pitcher_name'], r['games_pitched'], pitches, strikes, balls, pct,
+              fmt_rate(r['era']), fmt_rate(r['whip']), fmt_rate(r['k9'])
             ]
+            adv_cells = advanced ? [fmt_rate(r['bb9']), fmt_baa(r['baa']), fmt_rate(r['p_ip'])] : []
+            tail_cells = [ip_share, r['avg_per_game'], r['seven_day_total'], r['last_outing'] || '—']
+
+            base_cells + adv_cells + tail_cells
           end
         )
         t.style = TABLE_STYLE
         t.to_s
       end
 
-      def pitcher_games(pitcher_name, rows)
+      # Rate-stat formatting helpers — two-decimal float, em-dash on nil.
+      def fmt_rate(v)
+        v.nil? ? '—' : format('%.2f', v)
+      end
+
+      # BAA renders as .XXX (three decimals, no leading zero).
+      def fmt_baa(v)
+        return '—' if v.nil?
+
+        formatted = format('%.3f', v)
+        formatted.sub(/^0/, '')
+      end
+
+      def pitcher_games(pitcher_name, rows, totals: nil)
         return "No games found for pitcher: #{pitcher_name}" if rows.empty?
 
-        t = Terminal::Table.new(
-          title: pitcher_name,
-          headings: ['Date', 'Opponent', 'H/A', 'Status', 'Pitches', 'Strikes', 'Balls', 'Strike%', 'IP'],
-          rows: rows.map do |r|
-            status   = r['status'] == 'in_progress' ? "(live)" : r['status']
-            pitches  = r['pitches_thrown'].to_i
-            strikes  = r['strikes_thrown'].to_i
-            balls    = pitches - strikes
-            pct      = pitches > 0 ? format('%.0f%%', strikes * 100.0 / pitches) : '—'
-            [
-              r['game_date'],
-              r['opponent'] || '—',
-              r['home_away'] || '—',
-              status,
-              pitches,
-              strikes,
-              balls,
-              pct,
-              r['innings_pitched'] ? format('%.1f', r['innings_pitched']) : '—'
-            ]
-          end
-        )
+        headings = ['Date', 'Opponent', 'H/A', 'Status', 'P', 'S', 'IP',
+                    'BF', 'H', 'R', 'ER', 'BB', 'SO']
+        outing_rows = rows.map do |r|
+          status  = r['status'] == 'in_progress' ? '(live)' : r['status']
+          [
+            r['game_date'],
+            r['opponent'] || '—',
+            r['home_away'] || '—',
+            status,
+            r['pitches_thrown'].to_i,
+            r['strikes_thrown'].to_i,
+            r['innings_pitched'] ? format('%.1f', r['innings_pitched']) : '—',
+            r['batters_faced'].to_i,
+            r['hits_allowed'].to_i,
+            r['runs_allowed'].to_i,
+            r['earned_runs'].to_i,
+            r['walks_issued'].to_i,
+            r['strikeouts_recorded'].to_i
+          ]
+        end
+
+        all_rows = outing_rows
+        if totals
+          all_rows = outing_rows + [
+            :separator,
+            cumulative_footer_row(rows.length, totals)
+          ]
+        end
+
+        t = Terminal::Table.new(title: pitcher_name, headings: headings, rows: all_rows)
         t.style = TABLE_STYLE
         t.to_s
+      end
+
+      # Footer summarizing N outings with cumulative counts and derived rates
+      # (ERA / WHIP / K/9 / BAA). Rendered after a separator row.
+      def cumulative_footer_row(n_outings, totals)
+        rates = "ERA #{fmt_rate(totals['era'])}  WHIP #{fmt_rate(totals['whip'])}  " \
+                "K/9 #{fmt_rate(totals['k9'])}  BAA #{fmt_baa(totals['baa'])}"
+        [
+          "Total (#{n_outings})", '', '', rates,
+          totals['total_pitches'].to_i,
+          totals['total_strikes'].to_i,
+          format('%.1f', totals['total_ip'].to_f),
+          totals['total_bf'].to_i,
+          totals['total_h'].to_i,
+          totals['total_r'].to_i,
+          totals['total_er'].to_i,
+          totals['total_bb'].to_i,
+          totals['total_so'].to_i
+        ]
       end
 
       def availability(target_date, game_info, rows, rules)

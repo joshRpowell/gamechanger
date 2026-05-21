@@ -389,3 +389,64 @@ Note: the key is `SO`, not `K`. **Pre-existing bug:** `lib/gamechanger/batter_st
 - HBP requires reading `lineup.extra[]` and joining by `player_id` to the lineup row — the parser already does this pattern in `BoxscoreParser` for `#P`/`TS`/`BF` on the pitching group.
 - Storage: add `hbp INTEGER` to `game_batter_stats` in migration v5. Compute `PA = at_bats + walks + hbp` at query time (no stored `pa` column needed — derived).
 - The fix-`K`-vs-`SO` parser correction is the right time to also start populating strikeouts correctly. After the fix lands, recommend users `gamechanger refresh` to repopulate historical rows.
+
+---
+
+## Probe — pitching stat keys gap analysis (2026-05-21)
+
+**Goal:** confirm which pitching stat keys the boxscore exposes vs which the gem currently extracts, before scoping a "catch-up extract" of advanced pitching metrics (ERA, WHIP, K/9, BAA).
+
+**Method:** fetched `/game-stream-processing/{game_id}/boxscore` for the 15 most-recent final games from the local cache, took the union of `pitching.extra[].stat_name` entries and the union of per-pitcher `pitching.stats[].stats` hash keys.
+
+### Findings
+
+**`pitching.extra[]` — union across 15 games:**
+
+```
+#P, BF, HBP, TS, WP
+```
+
+| Stat | Meaning | Sparsity | Currently extracted? |
+|------|---------|----------|---------------------|
+| `#P` | Total pitches | always present | yes |
+| `TS` | Total strikes | always present | yes |
+| `BF` | Batters faced | always present | **no** |
+| `WP` | Wild pitches | sparse (12/15 games) | **no** |
+| `HBP` | Hit by pitch (allowed) | sparse (9/15 games) | **no** |
+
+`WP` and `HBP` follow the sparse-event pattern — only present in games where count > 0 — mirroring the batter-side `2B/3B/HR/SB/CS/E/HBP` shape in `lineup.extra[]`.
+
+**Per-player `pitching.stats[].stats` hash — consistent across all 15 games:**
+
+```
+BB, ER, H, IP, R, SO
+```
+
+| Stat | Currently extracted? |
+|------|---------------------|
+| `IP` | yes |
+| `H` (hits allowed) | **no** |
+| `R` (runs) | **no** |
+| `ER` (earned runs) | **no** |
+| `BB` (walks issued) | **no** |
+| `SO` (strikeouts recorded) | **no** |
+
+**Confirmed absent from `pitching.extra[]` in the 15-game sample** (and from `pitching.stats[]`):
+
+- `2B`, `3B`, `HR` allowed (no extra-base-hit breakdown on the pitching side, despite the batter side having it)
+- `SB`, `CS` allowed
+- `E` (errors behind pitcher)
+- `IBB` (intentional walks)
+- `BK` (balks)
+- `PO` (pickoffs)
+- `IR` / `IRS` (inherited / stranded runners)
+- Any first-pitch-strike or count-leverage breakdown
+
+These would need a separate, unprobed pitch-by-pitch endpoint (the `/game-stream-processing/` path family suggests a streaming sibling exists).
+
+### Implications
+
+- 8 fields (`BF, WP, HBP, H, R, ER, BB, SO`) are already-visible-but-unused and can be extracted with the same `BoxscoreParser` pattern already used for `#P/TS/BF`.
+- Unlocks at query time: ERA, WHIP = (H+BB)/IP, K/9, BB/9, K/BB, BAA ≈ H/(BF−BB−HBP), P/IP, P/BF.
+- Storage migration mirrors v5: add columns to `game_pitcher_stats`, populate on next sync, recommend `gamechanger refresh` to backfill.
+- First-pitch-strike %, pitch types, defensive innings per pitcher remain unavailable from `/boxscore` (hard ceiling).

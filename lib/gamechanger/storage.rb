@@ -78,10 +78,20 @@ module Gamechanger
       [5, <<~SQL],
         ALTER TABLE game_batter_stats ADD COLUMN hbp INTEGER NOT NULL DEFAULT 0;
       SQL
-      [6, <<~SQL]
+      [6, <<~SQL],
         ALTER TABLE game_batter_stats ADD COLUMN doubles   INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE game_batter_stats ADD COLUMN triples   INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE game_batter_stats ADD COLUMN home_runs INTEGER NOT NULL DEFAULT 0;
+      SQL
+      [7, <<~SQL]
+        ALTER TABLE game_pitcher_stats ADD COLUMN batters_faced       INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE game_pitcher_stats ADD COLUMN hits_allowed        INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE game_pitcher_stats ADD COLUMN runs_allowed        INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE game_pitcher_stats ADD COLUMN earned_runs         INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE game_pitcher_stats ADD COLUMN walks_issued        INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE game_pitcher_stats ADD COLUMN strikeouts_recorded INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE game_pitcher_stats ADD COLUMN wild_pitches        INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE game_pitcher_stats ADD COLUMN hbp_allowed         INTEGER NOT NULL DEFAULT 0;
       SQL
     ].freeze
 
@@ -141,21 +151,41 @@ module Gamechanger
 
     # Upsert pitcher stats for a game. Safe to call repeatedly.
     # @param game_id [String] Gamechanger game ID (must already exist in games table)
-    # @param stats [Array<Hash>] each with keys: pitcher_name, pitches_thrown, innings_pitched
+    # @param stats [Array<Hash>] each with keys: pitcher_name, pitches_thrown, strikes_thrown,
+    #   innings_pitched, batters_faced, hits_allowed, runs_allowed, earned_runs, walks_issued,
+    #   strikeouts_recorded, wild_pitches, hbp_allowed
     def upsert_pitcher_stats(game_id:, stats:)
       now = iso_now
       db.transaction(:immediate) do
         stats.each do |stat|
-          db.execute(<<~SQL, [game_id, stat[:pitcher_name], stat[:pitches_thrown].to_i,
-            INSERT INTO game_pitcher_stats (game_id, pitcher_name, pitches_thrown, strikes_thrown, innings_pitched, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+          db.execute(<<~SQL, [
+            INSERT INTO game_pitcher_stats (
+              game_id, pitcher_name, pitches_thrown, strikes_thrown, innings_pitched,
+              batters_faced, hits_allowed, runs_allowed, earned_runs, walks_issued,
+              strikeouts_recorded, wild_pitches, hbp_allowed, fetched_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(game_id, pitcher_name) DO UPDATE SET
-              pitches_thrown  = excluded.pitches_thrown,
-              strikes_thrown  = excluded.strikes_thrown,
-              innings_pitched = excluded.innings_pitched,
-              fetched_at      = excluded.fetched_at
+              pitches_thrown      = excluded.pitches_thrown,
+              strikes_thrown      = excluded.strikes_thrown,
+              innings_pitched     = excluded.innings_pitched,
+              batters_faced       = excluded.batters_faced,
+              hits_allowed        = excluded.hits_allowed,
+              runs_allowed        = excluded.runs_allowed,
+              earned_runs         = excluded.earned_runs,
+              walks_issued        = excluded.walks_issued,
+              strikeouts_recorded = excluded.strikeouts_recorded,
+              wild_pitches        = excluded.wild_pitches,
+              hbp_allowed         = excluded.hbp_allowed,
+              fetched_at          = excluded.fetched_at
           SQL
-                           stat[:strikes_thrown], stat[:innings_pitched], now])
+                           game_id, stat[:pitcher_name], stat[:pitches_thrown].to_i,
+                           stat[:strikes_thrown].to_i, stat[:innings_pitched],
+                           stat[:batters_faced].to_i, stat[:hits_allowed].to_i,
+                           stat[:runs_allowed].to_i, stat[:earned_runs].to_i,
+                           stat[:walks_issued].to_i, stat[:strikeouts_recorded].to_i,
+                           stat[:wild_pitches].to_i, stat[:hbp_allowed].to_i, now
+                         ])
         end
       end
     end
@@ -595,6 +625,14 @@ module Gamechanger
           SUM(gps.pitches_thrown)                                      AS total_pitches,
           SUM(gps.strikes_thrown)                                      AS total_strikes,
           SUM(gps.innings_pitched)                                     AS total_ip,
+          SUM(gps.batters_faced)                                       AS total_bf,
+          SUM(gps.hits_allowed)                                        AS total_h,
+          SUM(gps.runs_allowed)                                        AS total_r,
+          SUM(gps.earned_runs)                                         AS total_er,
+          SUM(gps.walks_issued)                                        AS total_bb,
+          SUM(gps.strikeouts_recorded)                                 AS total_so,
+          SUM(gps.wild_pitches)                                        AS total_wp,
+          SUM(gps.hbp_allowed)                                         AS total_hbp,
           ROUND(AVG(gps.pitches_thrown), 1)                            AS avg_per_game,
           SUM(CASE WHEN g.game_date >= date('now', '-7 days')
                    THEN gps.pitches_thrown ELSE 0 END)                 AS seven_day_total,
@@ -621,7 +659,9 @@ module Gamechanger
 
       db.execute(<<~SQL, [matches.first, season_start, next_season_start])
         SELECT g.game_date, g.opponent, g.home_away, g.status,
-               gps.pitches_thrown, gps.strikes_thrown, gps.innings_pitched
+               gps.pitches_thrown, gps.strikes_thrown, gps.innings_pitched,
+               gps.batters_faced, gps.hits_allowed, gps.runs_allowed, gps.earned_runs,
+               gps.walks_issued, gps.strikeouts_recorded, gps.wild_pitches, gps.hbp_allowed
         FROM game_pitcher_stats gps
         JOIN games g ON g.game_id = gps.game_id
         WHERE gps.pitcher_name = ?
@@ -640,7 +680,10 @@ module Gamechanger
       )
       games.map do |game|
         stats = db.execute(
-          "SELECT pitcher_name, pitches_thrown, strikes_thrown, innings_pitched FROM game_pitcher_stats WHERE game_id = ? ORDER BY pitches_thrown DESC",
+          "SELECT pitcher_name, pitches_thrown, strikes_thrown, innings_pitched, " \
+          "batters_faced, hits_allowed, runs_allowed, earned_runs, walks_issued, " \
+          "strikeouts_recorded, wild_pitches, hbp_allowed " \
+          "FROM game_pitcher_stats WHERE game_id = ? ORDER BY pitches_thrown DESC",
           [game['game_id']]
         )
         game.merge('pitcher_stats' => stats)

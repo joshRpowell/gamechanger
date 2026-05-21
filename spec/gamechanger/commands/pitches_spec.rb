@@ -41,6 +41,54 @@ RSpec.describe Gamechanger::Commands::Pitches do
       expect { command.call }.to raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       expect(shell).to have_received(:say).with('Ambiguous name — did you mean:', :yellow)
     end
+
+    it 'passes cumulative totals with derived rates to the formatter' do
+      outings = [
+        { 'game_date' => '2026-05-01', 'opponent' => 'A', 'home_away' => 'home', 'status' => 'final',
+          'pitcher_name' => 'Alice', 'pitches_thrown' => 60, 'strikes_thrown' => 38,
+          'innings_pitched' => 4.0, 'batters_faced' => 15, 'hits_allowed' => 3,
+          'runs_allowed' => 2, 'earned_runs' => 2, 'walks_issued' => 1,
+          'strikeouts_recorded' => 5, 'wild_pitches' => 0, 'hbp_allowed' => 0 },
+        { 'game_date' => '2026-05-08', 'opponent' => 'B', 'home_away' => 'away', 'status' => 'final',
+          'pitcher_name' => 'Alice', 'pitches_thrown' => 45, 'strikes_thrown' => 28,
+          'innings_pitched' => 3.0, 'batters_faced' => 12, 'hits_allowed' => 2,
+          'runs_allowed' => 1, 'earned_runs' => 1, 'walks_issued' => 2,
+          'strikeouts_recorded' => 4, 'wild_pitches' => 1, 'hbp_allowed' => 0 }
+      ]
+      allow(storage).to receive(:pitcher_games).with('Alice').and_return(outings)
+      formatter = instance_spy(Gamechanger::Formatters::Table, pitcher_games: '')
+      allow(command).to receive(:build_formatter).and_return(formatter)
+      command.call
+      expect(formatter).to have_received(:pitcher_games) do |_name, _rows, totals:|
+        expect(totals['total_ip']).to eq(7.0)
+        expect(totals['total_er']).to eq(3)
+        expect(totals['total_bf']).to eq(27)
+        expect(totals['total_so']).to eq(9)
+        expect(totals['era']).to  be_within(0.01).of(3 * 9.0 / 7)
+        expect(totals['whip']).to be_within(0.01).of((5 + 3) / 7.0)
+        expect(totals['k9']).to   be_within(0.01).of(9 * 9.0 / 7)
+        expect(totals['baa']).to  be_within(0.001).of(5.0 / (27 - 3 - 0))
+      end
+    end
+
+    it 'sets cumulative rates to nil when total IP is 0' do
+      outings = [
+        { 'game_date' => '2026-05-01', 'opponent' => 'A', 'home_away' => 'home', 'status' => 'final',
+          'pitcher_name' => 'Alice', 'pitches_thrown' => 8, 'strikes_thrown' => 3,
+          'innings_pitched' => 0.0, 'batters_faced' => 2, 'hits_allowed' => 1,
+          'runs_allowed' => 1, 'earned_runs' => 1, 'walks_issued' => 1,
+          'strikeouts_recorded' => 0, 'wild_pitches' => 0, 'hbp_allowed' => 0 }
+      ]
+      allow(storage).to receive(:pitcher_games).with('Alice').and_return(outings)
+      formatter = instance_spy(Gamechanger::Formatters::Table, pitcher_games: '')
+      allow(command).to receive(:build_formatter).and_return(formatter)
+      command.call
+      expect(formatter).to have_received(:pitcher_games) do |_name, _rows, totals:|
+        expect(totals['era']).to be_nil
+        expect(totals['whip']).to be_nil
+        expect(totals['k9']).to be_nil
+      end
+    end
   end
 
   describe '#call season summary %IP column' do
@@ -79,6 +127,105 @@ RSpec.describe Gamechanger::Commands::Pitches do
       expect(formatter).to have_received(:season_summary) do |passed_rows|
         # Ace and Closer both 40%, Middle 20% — verify Middle is last
         expect(passed_rows.last['pitcher_name']).to eq('Middle')
+      end
+    end
+
+    it 'derives ERA/WHIP/K/9/BAA/BB9/P-IP/P-BF on each row' do
+      rate_rows = [
+        { 'pitcher_name' => 'Ace', 'games_pitched' => 1,
+          'total_pitches' => 85, 'total_strikes' => 55,
+          'total_ip' => 6.0, 'total_bf' => 24, 'total_h' => 5, 'total_r' => 2,
+          'total_er' => 2, 'total_bb' => 2, 'total_so' => 8, 'total_wp' => 0,
+          'total_hbp' => 0, 'avg_per_game' => 85, 'seven_day_total' => 0,
+          'last_outing' => '2026-05-10' }
+      ]
+      allow(storage).to receive(:season_summary).and_return(rate_rows)
+      formatter = instance_spy(Gamechanger::Formatters::Table, season_summary: '')
+      allow(command).to receive(:build_formatter).and_return(formatter)
+      command.call
+      expect(formatter).to have_received(:season_summary) do |passed_rows, **|
+        ace = passed_rows.first
+        expect(ace['era']).to  be_within(0.01).of(3.00)
+        expect(ace['whip']).to be_within(0.01).of(1.17)
+        expect(ace['k9']).to   be_within(0.01).of(12.00)
+        expect(ace['bb9']).to  be_within(0.01).of(3.00)
+        expect(ace['baa']).to  be_within(0.001).of(5.0 / 22)  # H / (BF - BB - HBP) = 5/22
+        expect(ace['p_ip']).to be_within(0.01).of(14.17)
+        expect(ace['p_bf']).to be_within(0.01).of(85.0 / 24)
+      end
+    end
+
+    it 'sets all rate stats to nil when IP is 0' do
+      ip_zero = [
+        { 'pitcher_name' => 'Reliever', 'games_pitched' => 1,
+          'total_pitches' => 8, 'total_strikes' => 3, 'total_ip' => 0,
+          'total_bf' => 2, 'total_h' => 1, 'total_r' => 0, 'total_er' => 0,
+          'total_bb' => 1, 'total_so' => 0, 'total_wp' => 0, 'total_hbp' => 0,
+          'avg_per_game' => 8, 'seven_day_total' => 0, 'last_outing' => '2026-05-10' }
+      ]
+      allow(storage).to receive(:season_summary).and_return(ip_zero)
+      formatter = instance_spy(Gamechanger::Formatters::Table, season_summary: '')
+      allow(command).to receive(:build_formatter).and_return(formatter)
+      command.call
+      expect(formatter).to have_received(:season_summary) do |passed_rows, **|
+        r = passed_rows.first
+        expect(r['era']).to be_nil
+        expect(r['whip']).to be_nil
+        expect(r['k9']).to be_nil
+        expect(r['p_ip']).to be_nil
+      end
+    end
+
+    it 'sets BAA to nil when (BF - BB - HBP) is non-positive' do
+      no_ab = [
+        { 'pitcher_name' => 'Wild', 'games_pitched' => 1,
+          'total_pitches' => 20, 'total_strikes' => 5, 'total_ip' => 1.0,
+          'total_bf' => 3, 'total_h' => 0, 'total_r' => 1, 'total_er' => 1,
+          'total_bb' => 3, 'total_so' => 0, 'total_wp' => 0, 'total_hbp' => 0,
+          'avg_per_game' => 20, 'seven_day_total' => 0, 'last_outing' => '2026-05-10' }
+      ]
+      allow(storage).to receive(:season_summary).and_return(no_ab)
+      formatter = instance_spy(Gamechanger::Formatters::Table, season_summary: '')
+      allow(command).to receive(:build_formatter).and_return(formatter)
+      command.call
+      expect(formatter).to have_received(:season_summary) do |passed_rows, **|
+        expect(passed_rows.first['baa']).to be_nil
+      end
+    end
+
+    it 'passes advanced: true to the formatter when --advanced is set' do
+      cmd = described_class.new(options: { format: 'table', advanced: true }, shell: shell)
+      formatter = instance_spy(Gamechanger::Formatters::Table, season_summary: '')
+      allow(cmd).to receive(:build_formatter).and_return(formatter)
+      cmd.call
+      expect(formatter).to have_received(:season_summary).with(anything, advanced: true)
+    end
+
+    it 'passes advanced: false to the formatter by default' do
+      formatter = instance_spy(Gamechanger::Formatters::Table, season_summary: '')
+      allow(command).to receive(:build_formatter).and_return(formatter)
+      command.call
+      expect(formatter).to have_received(:season_summary).with(anything, advanced: false)
+    end
+
+    it 'sorts by --sort era ascending' do
+      multi_rows = [
+        { 'pitcher_name' => 'High', 'games_pitched' => 1, 'total_pitches' => 50, 'total_strikes' => 30,
+          'total_ip' => 3.0, 'total_bf' => 12, 'total_h' => 5, 'total_r' => 6, 'total_er' => 6,
+          'total_bb' => 2, 'total_so' => 2, 'total_wp' => 0, 'total_hbp' => 0,
+          'avg_per_game' => 50, 'seven_day_total' => 0, 'last_outing' => '2026-05-10' },
+        { 'pitcher_name' => 'Low', 'games_pitched' => 1, 'total_pitches' => 60, 'total_strikes' => 42,
+          'total_ip' => 6.0, 'total_bf' => 22, 'total_h' => 3, 'total_r' => 1, 'total_er' => 1,
+          'total_bb' => 1, 'total_so' => 8, 'total_wp' => 0, 'total_hbp' => 0,
+          'avg_per_game' => 60, 'seven_day_total' => 0, 'last_outing' => '2026-05-10' }
+      ]
+      allow(storage).to receive(:season_summary).and_return(multi_rows)
+      cmd = described_class.new(options: { format: 'table', sort: 'era' }, shell: shell)
+      formatter = instance_spy(Gamechanger::Formatters::Table, season_summary: '')
+      allow(cmd).to receive(:build_formatter).and_return(formatter)
+      cmd.call
+      expect(formatter).to have_received(:season_summary) do |passed_rows, **|
+        expect(passed_rows.map { |r| r['pitcher_name'] }).to eq(%w[Low High])
       end
     end
 

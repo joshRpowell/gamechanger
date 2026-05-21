@@ -3,58 +3,93 @@
 module Gamechanger
   module Formatters
     class Markdown
-      def season_summary(rows)
+      def season_summary(rows, advanced: false)
         return "_No pitch data found for this season._" if rows.empty?
 
-        headings = ['Pitcher', 'GP', 'Pitches', 'Strikes', 'Balls', 'Strike%', '%IP', 'Avg/Game', '7-Day', 'Last Outing']
+        base_headings = ['Pitcher', 'GP', 'Pitches', 'Strikes', 'Balls', 'S%',
+                         'ERA', 'WHIP', 'K/9']
+        adv_headings  = advanced ? ['BB/9', 'BAA', 'P/IP'] : []
+        tail_headings = ['%IP', 'Avg/Game', '7-Day', 'Last Outing']
+        headings = base_headings + adv_headings + tail_headings
+
         data = rows.map do |r|
           strikes  = r['total_strikes'].to_i
           pitches  = r['total_pitches'].to_i
           balls    = pitches - strikes
           pct      = pitches > 0 ? format('%.0f%%', strikes * 100.0 / pitches) : '—'
           ip_share = r['ip_share'].nil? ? '—' : format('%.1f%%', r['ip_share'])
-          [
-            r['pitcher_name'],
-            r['games_pitched'],
-            pitches,
-            strikes,
-            balls,
-            pct,
-            ip_share,
-            r['avg_per_game'],
-            r['seven_day_total'],
-            r['last_outing'] || '—'
+
+          base_cells = [
+            r['pitcher_name'], r['games_pitched'], pitches, strikes, balls, pct,
+            fmt_rate(r['era']), fmt_rate(r['whip']), fmt_rate(r['k9'])
           ]
+          adv_cells = advanced ? [fmt_rate(r['bb9']), fmt_baa(r['baa']), fmt_rate(r['p_ip'])] : []
+          tail_cells = [ip_share, r['avg_per_game'], r['seven_day_total'], r['last_outing'] || '—']
+
+          base_cells + adv_cells + tail_cells
         end
 
         md_table(headings, data)
       end
 
-      def pitcher_games(pitcher_name, rows)
+      def fmt_rate(v)
+        v.nil? ? '—' : format('%.2f', v)
+      end
+
+      def fmt_baa(v)
+        return '—' if v.nil?
+
+        format('%.3f', v).sub(/^0/, '')
+      end
+
+      def pitcher_games(pitcher_name, rows, totals: nil)
         return "_No games found for pitcher: #{pitcher_name}_" if rows.empty?
 
         lines = ["## #{pitcher_name}", ""]
-        headings = ['Date', 'Opponent', 'H/A', 'Status', 'Pitches', 'Strikes', 'Balls', 'Strike%', 'IP']
+        headings = ['Date', 'Opponent', 'H/A', 'Status', 'P', 'S', 'IP',
+                    'BF', 'H', 'R', 'ER', 'BB', 'SO']
         data = rows.map do |r|
-          status  = r['status'] == 'in_progress' ? '(live)' : r['status']
-          pitches = r['pitches_thrown'].to_i
-          strikes = r['strikes_thrown'].to_i
-          balls   = pitches - strikes
-          pct     = pitches > 0 ? format('%.0f%%', strikes * 100.0 / pitches) : '—'
+          status = r['status'] == 'in_progress' ? '(live)' : r['status']
           [
             r['game_date'],
             r['opponent'] || '—',
             r['home_away'] || '—',
             status,
-            pitches,
-            strikes,
-            balls,
-            pct,
-            r['innings_pitched'] ? format('%.1f', r['innings_pitched']) : '—'
+            r['pitches_thrown'].to_i,
+            r['strikes_thrown'].to_i,
+            r['innings_pitched'] ? format('%.1f', r['innings_pitched']) : '—',
+            r['batters_faced'].to_i,
+            r['hits_allowed'].to_i,
+            r['runs_allowed'].to_i,
+            r['earned_runs'].to_i,
+            r['walks_issued'].to_i,
+            r['strikeouts_recorded'].to_i
+          ]
+        end
+
+        if totals
+          data << [
+            "**Total (#{rows.length})**", '', '', '',
+            totals['total_pitches'].to_i,
+            totals['total_strikes'].to_i,
+            format('%.1f', totals['total_ip'].to_f),
+            totals['total_bf'].to_i,
+            totals['total_h'].to_i,
+            totals['total_r'].to_i,
+            totals['total_er'].to_i,
+            totals['total_bb'].to_i,
+            totals['total_so'].to_i
           ]
         end
 
         lines << md_table(headings, data)
+
+        if totals
+          lines << ""
+          lines << "**Cumulative:** ERA #{fmt_rate(totals['era'])} · WHIP #{fmt_rate(totals['whip'])} · " \
+                   "K/9 #{fmt_rate(totals['k9'])} · BAA #{fmt_baa(totals['baa'])}"
+        end
+
         lines.join("\n")
       end
 

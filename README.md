@@ -77,10 +77,28 @@ bundle exec gamechanger brief --format markdown | pbcopy   # copy to clipboard f
 bundle exec gamechanger refresh          # sync all games
 bundle exec gamechanger pitches          # sync and show pitcher workload
 bundle exec gamechanger pitches --refresh           # force re-fetch of in-progress games
+bundle exec gamechanger pitches --sort era          # ranked by ERA ascending (best first)
 bundle exec gamechanger pitches --sort ip_share --desc  # who shouldered the load
+bundle exec gamechanger pitches --advanced          # add BB/9, BAA, P/IP columns
+bundle exec gamechanger pitches --pitcher Smith     # per-outing log + cumulative footer
 ```
 
-The `pitches` table shows `GP`, `Pitches`, `Strikes`, `Balls`, `Strike%`, `%IP`, `Avg/Game`, `7-Day`, `Last Outing`. `%IP` is each pitcher's share of the team's actual defensive innings across the report window (one decimal). Sort keys: `name`, `gp`, `pitches`, `strikes`, `balls`, `pct`, `ip_share`, `avg`, `7day`, `last`.
+The default `pitches` table shows `GP`, `Pitches`, `Strikes`, `Balls`, `S%`, `ERA`, `WHIP`, `K/9`, `%IP`, `Avg/Game`, `7-Day`, `Last Outing`. With `--advanced`, three more columns appear between `K/9` and `%IP`: `BB/9`, `BAA`, `P/IP`.
+
+Rate definitions:
+- `ERA` = `ER × 9 / IP` (standard 9-inning scale, regardless of league game length)
+- `WHIP` = `(H + BB) / IP`
+- `K/9` = `SO × 9 / IP`
+- `BB/9` = `BB × 9 / IP`
+- `BAA` = `H / (BF − BB − HBP)` (rendered as `.XXX`)
+- `P/IP` = pitches per inning
+- `%IP` = pitcher's share of team's defensive innings (one decimal)
+
+All rate stats render `—` when the denominator is 0 (e.g. relief appearance with no outs).
+
+Sort keys: `name`, `gp`, `pitches`, `strikes`, `balls`, `pct`, `ip_share`, `era`, `whip`, `k9`, `bb9`, `baa`, `p_ip`, `p_bf`, `avg`, `7day`, `last`. Rate-stat sort keys (`era`, `whip`, etc.) work regardless of whether `--advanced` is set.
+
+The per-pitcher view (`--pitcher NAME`) shows raw counts per outing (`P`, `S`, `IP`, `BF`, `H`, `R`, `ER`, `BB`, `SO`) and appends a cumulative footer with derived ERA, WHIP, K/9, and BAA across the displayed outings. Per-outing rates are intentionally not shown — single-outing rates are noisy at youth-game sample sizes.
 
 ### Pitcher availability
 

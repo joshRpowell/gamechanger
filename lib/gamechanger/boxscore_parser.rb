@@ -13,17 +13,15 @@ module Gamechanger
   #           "extra": [
   #             { "stat_name": "#P",  "stats": [{ "player_id", "value" }] },
   #             { "stat_name": "TS",  "stats": [...] },
-  #             { "stat_name": "BF",  "stats": [...] }
+  #             { "stat_name": "BF",  "stats": [...] },
+  #             { "stat_name": "WP",  "stats": [...] },   # sparse
+  #             { "stat_name": "HBP", "stats": [...] }    # sparse
   #           ],
   #           "stats": [{ "player_id", "stats": { "IP", "H", "R", "ER", "BB", "SO" } }]
   #         }
   #       ]
   #     }
   #   }
-  #
-  # Usage:
-  #   BoxscoreParser.new(response, team_slug: 'wGP47FexatoQ').pitcher_stats
-  #   # => [{ pitcher_name: "Asher Lima", pitches_thrown: 59, innings_pitched: 4.0 }, ...]
   class BoxscoreParser
     def initialize(response, team_slug:)
       @data      = response[team_slug]
@@ -31,28 +29,42 @@ module Gamechanger
       raise APIShapeError, "Team '#{team_slug}' not found in boxscore response" if @data.nil?
     end
 
-    # @return [Array<Hash>] pitcher stats with keys: pitcher_name, pitches_thrown, strikes_thrown, innings_pitched
+    # @return [Array<Hash>] pitcher stats with keys:
+    #   pitcher_name, pitches_thrown, strikes_thrown, innings_pitched,
+    #   batters_faced, wild_pitches, hbp_allowed,
+    #   hits_allowed, runs_allowed, earned_runs, walks_issued, strikeouts_recorded
     def pitcher_stats
       players   = build_player_index
       pitching  = pitching_group
       return [] if pitching.nil?
 
-      pitch_counts = extract_extra(pitching, '#P')   # total pitches
-      strike_map   = extract_extra(pitching, 'TS').each_with_object({}) do |e, h|
-        h[e['player_id']] = e['value'].to_i
-      end
-      innings_map  = build_ip_map(pitching)
+      pitch_counts = extract_extra(pitching, '#P')
+      strike_map   = value_map(pitching, 'TS')
+      bf_map       = value_map(pitching, 'BF')
+      wp_map       = value_map(pitching, 'WP')
+      hbp_map      = value_map(pitching, 'HBP')
+      stats_map    = build_pitcher_stats_map(pitching)
 
       pitch_counts.map do |entry|
         player_id = entry['player_id']
         player    = players[player_id]
         next nil if player.nil?
 
+        per = stats_map[player_id] || {}
+
         {
-          pitcher_name:    "#{player['first_name']} #{player['last_name']}".strip,
-          pitches_thrown:  entry['value'].to_i,
-          strikes_thrown:  strike_map[player_id],
-          innings_pitched: innings_map[player_id]
+          pitcher_name:        "#{player['first_name']} #{player['last_name']}".strip,
+          pitches_thrown:      entry['value'].to_i,
+          strikes_thrown:      strike_map[player_id].to_i,
+          innings_pitched:     per['IP'],
+          batters_faced:       bf_map[player_id].to_i,
+          wild_pitches:        wp_map[player_id].to_i,
+          hbp_allowed:         hbp_map[player_id].to_i,
+          hits_allowed:        per['H'].to_i,
+          runs_allowed:        per['R'].to_i,
+          earned_runs:         per['ER'].to_i,
+          walks_issued:        per['BB'].to_i,
+          strikeouts_recorded: per['SO'].to_i
         }
       end.compact
     end
@@ -76,11 +88,18 @@ module Gamechanger
       entry ? (entry['stats'] || []) : []
     end
 
-    # Build a player_id → innings_pitched map from the pitching stats array.
-    # IP is stored as a float (e.g. 4.333 for 4⅓ innings).
-    def build_ip_map(group)
+    # Build a player_id → value map from an extra[] entry. Returns {} when the
+    # stat is absent (sparse-event fields like WP, HBP).
+    def value_map(group, stat_name)
+      extract_extra(group, stat_name).each_with_object({}) do |e, h|
+        h[e['player_id']] = e['value'].to_i
+      end
+    end
+
+    # Build a player_id → per-pitcher stats hash ({IP, H, R, ER, BB, SO}).
+    def build_pitcher_stats_map(group)
       (group['stats'] || []).each_with_object({}) do |row, map|
-        map[row['player_id']] = row.dig('stats', 'IP')
+        map[row['player_id']] = row['stats'] || {}
       end
     end
   end
