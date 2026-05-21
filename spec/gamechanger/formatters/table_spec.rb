@@ -370,6 +370,36 @@ RSpec.describe Gamechanger::Formatters::Table do
       expect(output).to include('PA')
       expect(output).to match(/Slugger.*\b7\b/)
     end
+
+    it 'renders 1B/2B/3B/HR column headers between H and BB' do
+      rows = [{ 'batter_name' => 'Bob', 'games' => 1, 'total_ab' => 4,
+                'total_hits' => 2, 'total_walks' => 0, 'total_k' => 1,
+                'total_1b' => 1, 'total_2b' => 1, 'total_3b' => 0, 'total_hr' => 0,
+                'positions' => [] }]
+      output = fmt.hitting(rows)
+      # Header order: ... H | 1B | 2B | 3B | HR | BB ...
+      expect(output).to match(/H\s*[│|]\s*1B\s*[│|]\s*2B\s*[│|]\s*3B\s*[│|]\s*HR\s*[│|]\s*BB/)
+    end
+
+    it 'renders hit-type breakdown values' do
+      rows = [{ 'batter_name' => 'Power', 'games' => 1, 'total_ab' => 5,
+                'total_hits' => 5, 'total_walks' => 0, 'total_k' => 0,
+                'total_1b' => 3, 'total_2b' => 1, 'total_3b' => 0, 'total_hr' => 1,
+                'positions' => [] }]
+      output = fmt.hitting(rows)
+      # row: ... H=5 | 1B=3 | 2B=1 | 3B=0 | HR=1 ...
+      expect(output).to match(/Power.*\b5\b.*\b3\b.*\b1\b.*\b0\b.*\b1\b/)
+    end
+
+    it 'clamps negative total_1b to 0' do
+      rows = [{ 'batter_name' => 'Glitch', 'games' => 1, 'total_ab' => 2,
+                'total_hits' => 2, 'total_walks' => 0, 'total_k' => 0,
+                'total_1b' => -1, 'total_2b' => 3, 'total_3b' => 0, 'total_hr' => 0,
+                'positions' => [] }]
+      output = fmt.hitting(rows)
+      expect(output).not_to include('-1')
+      expect(output).to match(/Glitch.*\b2\b.*\b0\b.*\b3\b/) # H=2 | 1B=0 | 2B=3
+    end
   end
 
   # ── batter_games ──────────────────────────────────────────────────────────

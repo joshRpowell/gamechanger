@@ -9,11 +9,14 @@ module Gamechanger
   #
   # Usage:
   #   BatterStatsParser.new(response, team_slug: 'wGP47FexatoQ').batter_stats
-  #   # => [{ batter_name: "Mason Marrero", at_bats: 3, hits: 2, walks: 1, strikeouts: 0, hbp: 1 }, ...]
+  #   # => [{ batter_name: "Mason Marrero", at_bats: 3, hits: 2, walks: 1, strikeouts: 0,
+  #   #      hbp: 1, doubles: 0, triples: 0, home_runs: 1 }, ...]
   #
-  # HBP is sourced from the lineup group's `extra[]` array (stat_name == "HBP"),
+  # HBP, 2B, 3B, and HR are sourced from the lineup group's `extra[]` array,
   # joined to lineup rows by player_id. The boxscore endpoint does not expose
   # sacrifices (SF/SH/SAC) under any name; PA = AB + BB + HBP is computed downstream.
+  # Singles (1B) are derived as H - 2B - 3B - HR at query/render time, not stored
+  # in the per-row hash.
   #
   # Returns [] when the lineup group is absent or its stats array is empty
   # (e.g. game not yet finalized in GameChanger's scoring system).
@@ -28,13 +31,17 @@ module Gamechanger
       raise APIShapeError, "Team '#{team_slug}' not found in boxscore response" if @data.nil?
     end
 
-    # @return [Array<Hash>] batter stats with keys: batter_name, at_bats, hits, walks, strikeouts, hbp
+    # @return [Array<Hash>] batter stats with keys: batter_name, at_bats, hits, walks,
+    #   strikeouts, hbp, doubles, triples, home_runs
     def batter_stats
       players = build_player_index
       lineup  = lineup_group
       return [] if lineup.nil?
 
-      hbp_by_player_id = extra_stat_by_player_id(lineup, 'HBP')
+      hbp_by_player_id       = extra_stat_by_player_id(lineup, 'HBP')
+      doubles_by_player_id   = extra_stat_by_player_id(lineup, '2B')
+      triples_by_player_id   = extra_stat_by_player_id(lineup, '3B')
+      home_runs_by_player_id = extra_stat_by_player_id(lineup, 'HR')
 
       (lineup['stats'] || []).filter_map do |row|
         player = players[row['player_id']]
@@ -47,7 +54,10 @@ module Gamechanger
           hits:        stats['H'].to_i,
           walks:       stats['BB'].to_i,
           strikeouts:  stats['SO'].to_i,
-          hbp:         hbp_by_player_id[row['player_id']].to_i
+          hbp:         hbp_by_player_id[row['player_id']].to_i,
+          doubles:     doubles_by_player_id[row['player_id']].to_i,
+          triples:     triples_by_player_id[row['player_id']].to_i,
+          home_runs:   home_runs_by_player_id[row['player_id']].to_i
         }
       end
     end

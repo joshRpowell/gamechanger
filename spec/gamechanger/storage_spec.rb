@@ -232,13 +232,16 @@ RSpec.describe Gamechanger::Storage do
       storage.upsert_batter_stats(
         game_id: 'g1',
         stats: [
-          { batter_name: 'Mason Marrero', at_bats: 3, hits: 2, walks: 1, strikeouts: 0, hbp: 1 },
-          { batter_name: 'Jase Passino',  at_bats: 4, hits: 1, walks: 0, strikeouts: 2, hbp: 0 }
+          { batter_name: 'Mason Marrero', at_bats: 3, hits: 2, walks: 1, strikeouts: 0, hbp: 1,
+            doubles: 1, triples: 0, home_runs: 0 },
+          { batter_name: 'Jase Passino',  at_bats: 4, hits: 1, walks: 0, strikeouts: 2, hbp: 0,
+            doubles: 0, triples: 1, home_runs: 0 }
         ]
       )
       storage.upsert_batter_stats(
         game_id: 'g2',
-        stats: [{ batter_name: 'Mason Marrero', at_bats: 4, hits: 3, walks: 1, strikeouts: 1, hbp: 2 }]
+        stats: [{ batter_name: 'Mason Marrero', at_bats: 4, hits: 3, walks: 1, strikeouts: 1, hbp: 2,
+                  doubles: 0, triples: 0, home_runs: 1 }]
       )
     end
 
@@ -293,6 +296,54 @@ RSpec.describe Gamechanger::Storage do
       rows = storage.season_batting_summary
       no_hbp = rows.find { |r| r['batter_name'] == 'No HBP' }
       expect(no_hbp['total_hbp']).to eq(0)
+    end
+
+    it 'aggregates doubles/triples/home_runs across games' do
+      rows = storage.season_batting_summary
+      mason = rows.find { |r| r['batter_name'] == 'Mason Marrero' }
+      jase  = rows.find { |r| r['batter_name'] == 'Jase Passino' }
+      expect(mason['total_2b']).to eq(1)
+      expect(mason['total_3b']).to eq(0)
+      expect(mason['total_hr']).to eq(1)
+      expect(jase['total_2b']).to eq(0)
+      expect(jase['total_3b']).to eq(1)
+      expect(jase['total_hr']).to eq(0)
+    end
+
+    it 'derives total_1b as hits minus extra-base hits' do
+      rows = storage.season_batting_summary
+      mason = rows.find { |r| r['batter_name'] == 'Mason Marrero' }
+      # H=5, 2B=1, 3B=0, HR=1 → 1B=3
+      expect(mason['total_1b']).to eq(3)
+      jase = rows.find { |r| r['batter_name'] == 'Jase Passino' }
+      # H=1, 2B=0, 3B=1, HR=0 → 1B=0
+      expect(jase['total_1b']).to eq(0)
+    end
+
+    it 'defaults doubles/triples/home_runs to 0 when the upsert payload omits the keys' do
+      storage.upsert_game(game_id: 'g3', game_date: '2026-03-15', opponent: 'C', home_away: 'home', status: 'final')
+      storage.upsert_batter_stats(
+        game_id: 'g3',
+        stats: [{ batter_name: 'No Extras', at_bats: 2, hits: 1, walks: 0, strikeouts: 0 }]
+      )
+      rows = storage.season_batting_summary
+      no_extras = rows.find { |r| r['batter_name'] == 'No Extras' }
+      expect(no_extras['total_2b']).to eq(0)
+      expect(no_extras['total_3b']).to eq(0)
+      expect(no_extras['total_hr']).to eq(0)
+      expect(no_extras['total_1b']).to eq(1) # H=1, no extras → 1B=1
+    end
+
+    it 'returns raw negative total_1b when extras exceed hits (formatter clamps)' do
+      storage.upsert_game(game_id: 'g4', game_date: '2026-03-22', opponent: 'D', home_away: 'home', status: 'final')
+      storage.upsert_batter_stats(
+        game_id: 'g4',
+        stats: [{ batter_name: 'Bad Data', at_bats: 2, hits: 2, walks: 0, strikeouts: 0, hbp: 0,
+                  doubles: 3, triples: 0, home_runs: 0 }]
+      )
+      rows = storage.season_batting_summary
+      bad = rows.find { |r| r['batter_name'] == 'Bad Data' }
+      expect(bad['total_1b']).to eq(-1)
     end
   end
 
@@ -845,6 +896,30 @@ RSpec.describe Gamechanger::Storage do
         "SELECT name FROM sqlite_master WHERE type='table' AND name='game_fielding_positions'"
       )
       expect(result).not_to be_empty
+    end
+
+    it 'applies v6 migration on fresh DB' do
+      versions = storage.send(:db).execute('SELECT version FROM schema_migrations').map { |r| r['version'] }
+      expect(versions).to include(6)
+    end
+
+    it 'adds doubles/triples/home_runs columns with NOT NULL DEFAULT 0' do
+      cols = storage.send(:db).execute('PRAGMA table_info(game_batter_stats)')
+      by_name = cols.each_with_object({}) { |c, h| h[c['name']] = c }
+      %w[doubles triples home_runs].each do |col|
+        expect(by_name[col]).not_to be_nil, "expected column #{col} on game_batter_stats"
+        expect(by_name[col]['notnull']).to eq(1)
+        expect(by_name[col]['dflt_value']).to eq('0')
+      end
+    end
+
+    it 'is idempotent — running migrate! twice does not re-apply v6' do
+      db = storage.send(:db)
+      described_class.send(:new, data_dir: ':memory:').send(:db) # warm a separate instance
+      # Re-invoke private migrate! and confirm schema_migrations still has exactly one row at v6
+      storage.send(:migrate!, db)
+      v6_count = db.execute('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 6').first['n']
+      expect(v6_count).to eq(1)
     end
   end
 

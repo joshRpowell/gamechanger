@@ -103,6 +103,30 @@ RSpec.describe Gamechanger::Formatters::Markdown do
       expect(output).to include('PA')
       expect(output).to match(/Slugger.*\| 7 /)
     end
+
+    it 'renders 1B/2B/3B/HR columns between H and BB' do
+      rows = [{
+        'batter_name' => 'Power', 'games' => 1,
+        'total_ab' => 5, 'total_hits' => 5, 'total_walks' => 0, 'total_k' => 0,
+        'total_1b' => 3, 'total_2b' => 1, 'total_3b' => 0, 'total_hr' => 1,
+        'positions' => []
+      }]
+      output = fmt.hitting(rows)
+      expect(output).to match(/\| H \| 1B \| 2B \| 3B \| HR \| BB \|/)
+      expect(output).to match(/Power\s*\|\s*1\s*\|\s*\d+\s*\|\s*5\s*\|\s*5\s*\|\s*3\s*\|\s*1\s*\|\s*0\s*\|\s*1\s*\|/)
+    end
+
+    it 'clamps negative total_1b to 0' do
+      rows = [{
+        'batter_name' => 'Glitch', 'games' => 1,
+        'total_ab' => 2, 'total_hits' => 2, 'total_walks' => 0, 'total_k' => 0,
+        'total_1b' => -1, 'total_2b' => 3, 'total_3b' => 0, 'total_hr' => 0,
+        'positions' => []
+      }]
+      output = fmt.hitting(rows)
+      expect(output).not_to match(/\|\s*-1\s*\|/)
+      expect(output).to match(/Glitch\s*\|\s*1\s*\|\s*\d+\s*\|\s*2\s*\|\s*2\s*\|\s*0\s*\|\s*3\s*\|/)
+    end
   end
 
   describe '#availability' do

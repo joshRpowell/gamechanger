@@ -75,8 +75,13 @@ module Gamechanger
         CREATE INDEX idx_gfp_game ON game_fielding_positions (game_id);
         CREATE INDEX idx_gfp_name ON game_fielding_positions (player_name);
       SQL
-      [5, <<~SQL]
+      [5, <<~SQL],
         ALTER TABLE game_batter_stats ADD COLUMN hbp INTEGER NOT NULL DEFAULT 0;
+      SQL
+      [6, <<~SQL]
+        ALTER TABLE game_batter_stats ADD COLUMN doubles   INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE game_batter_stats ADD COLUMN triples   INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE game_batter_stats ADD COLUMN home_runs INTEGER NOT NULL DEFAULT 0;
       SQL
     ].freeze
 
@@ -157,23 +162,30 @@ module Gamechanger
 
     # Upsert batter stats for a game. Safe to call repeatedly.
     # @param game_id [String] must already exist in games table
-    # @param stats [Array<Hash>] each with keys: batter_name, at_bats, hits, walks, strikeouts, hbp
+    # @param stats [Array<Hash>] each with keys: batter_name, at_bats, hits, walks, strikeouts,
+    #   hbp, doubles, triples, home_runs
     def upsert_batter_stats(game_id:, stats:)
       now = iso_now
       db.transaction(:immediate) do
         stats.each do |stat|
           db.execute(<<~SQL, [game_id, stat[:batter_name], stat[:at_bats].to_i,
-            INSERT INTO game_batter_stats (game_id, batter_name, at_bats, hits, walks, strikeouts, hbp, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO game_batter_stats
+              (game_id, batter_name, at_bats, hits, walks, strikeouts, hbp,
+               doubles, triples, home_runs, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(game_id, batter_name) DO UPDATE SET
               at_bats    = excluded.at_bats,
               hits       = excluded.hits,
               walks      = excluded.walks,
               strikeouts = excluded.strikeouts,
               hbp        = excluded.hbp,
+              doubles    = excluded.doubles,
+              triples    = excluded.triples,
+              home_runs  = excluded.home_runs,
               fetched_at = excluded.fetched_at
           SQL
-                           stat[:hits].to_i, stat[:walks].to_i, stat[:strikeouts].to_i, stat[:hbp].to_i, now])
+                           stat[:hits].to_i, stat[:walks].to_i, stat[:strikeouts].to_i, stat[:hbp].to_i,
+                           stat[:doubles].to_i, stat[:triples].to_i, stat[:home_runs].to_i, now])
         end
       end
     end
@@ -281,6 +293,11 @@ module Gamechanger
           SUM(gbs.walks)                                             AS total_walks,
           SUM(gbs.strikeouts)                                        AS total_k,
           SUM(gbs.hbp)                                               AS total_hbp,
+          SUM(gbs.doubles)                                           AS total_2b,
+          SUM(gbs.triples)                                           AS total_3b,
+          SUM(gbs.home_runs)                                         AS total_hr,
+          (SUM(gbs.hits) - SUM(gbs.doubles) - SUM(gbs.triples)
+             - SUM(gbs.home_runs))                                   AS total_1b,
           SUM(CASE WHEN g.game_date >= date('now', '-7 days')
                    THEN gbs.at_bats  ELSE 0 END)                    AS seven_day_ab,
           SUM(CASE WHEN g.game_date >= date('now', '-7 days')
