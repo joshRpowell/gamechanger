@@ -76,8 +76,11 @@ bundle exec gamechanger brief --format markdown | pbcopy   # copy to clipboard f
 ```bash
 bundle exec gamechanger refresh          # sync all games
 bundle exec gamechanger pitches          # sync and show pitcher workload
-bundle exec gamechanger pitches --refresh  # force re-fetch of in-progress games
+bundle exec gamechanger pitches --refresh           # force re-fetch of in-progress games
+bundle exec gamechanger pitches --sort ip_share --desc  # who shouldered the load
 ```
+
+The `pitches` table shows `GP`, `Pitches`, `Strikes`, `Balls`, `Strike%`, `%IP`, `Avg/Game`, `7-Day`, `Last Outing`. `%IP` is each pitcher's share of the team's actual defensive innings across the report window (one decimal). Sort keys: `name`, `gp`, `pitches`, `strikes`, `balls`, `pct`, `ip_share`, `avg`, `7day`, `last`.
 
 ### Pitcher availability
 
@@ -98,9 +101,12 @@ bundle exec gamechanger plan --games 2026-03-21 --ace "Smith" --skip "Jones"
 
 ```bash
 bundle exec gamechanger hitting
+bundle exec gamechanger hitting --sort pa --desc       # most plate appearances first
 bundle exec gamechanger lineup
 bundle exec gamechanger lineup --date 2026-03-21
 ```
+
+The `hitting` table shows `PA` (plate appearances = AB + BB + HBP), `AB`, `H`, `BB`, `K`, `AVG`, `OBP`, a 7-day trend arrow, and the player's most recent fielding positions. Sort keys: `name`, `g`, `pa`, `ab`, `h`, `bb`, `k`, `avg`, `obp`. Sacrifice flies and bunts (`SF`/`SH`) are not exposed by the GameChanger boxscore endpoint — `PA` undercounts by 1 for each sac.
 
 ### Fielding positions
 

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-21
+
+### Added
+- `PA` (plate appearances) column on `gamechanger hitting`, computed as `AB + BB + HBP`. Sortable via `--sort pa`. Sacrifice flies and bunts are not exposed by the GameChanger boxscore endpoint, so `PA` undercounts by 1 for each sac (documented limitation).
+- `%IP` column on `gamechanger pitches` showing each pitcher's share of the team's actual defensive innings across the report window, formatted as one decimal (e.g. `42.3%`). Sortable via `--sort ip_share`.
+- Migration v5: new `hbp INTEGER NOT NULL DEFAULT 0` column on `game_batter_stats`. Existing rows default to 0; run `gamechanger refresh` to repopulate from cached boxscores.
+
+### Fixed
+- **Strikeouts column now populated correctly.** Pre-existing bug: the parser read `stats['K']` from the boxscore, but the real API key is `'SO'`. All historical `game_batter_stats.strikeouts` rows are 0. Run `gamechanger refresh` after upgrading to backfill real strikeout values from cached games.
+
+### Changed
+- `BatterStatsParser` joins HBP from `lineup.extra[]` (keyed by `player_id`), mirroring the existing pattern `BoxscoreParser` uses for `#P`/`TS`/`BF`.
+- `season_summary` SQL exposes `SUM(innings_pitched)` as `total_ip`, enabling team-IP-share derivation in the `pitches` command.
+
 ## [0.5.0] - 2026-05-20
 
 ### Added — Fielding pivot command
