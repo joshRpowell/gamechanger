@@ -67,6 +67,13 @@ module Gamechanger
       Commands::Hitting.new(options: options, shell: shell).call
     end
 
+    desc 'fielding', 'Show season fielding position usage (player x position pivot)'
+    option :sort, type: :string,  desc: 'Sort by column key (player, total, or a position code present in the table — case-insensitive)'
+    option :desc, type: :boolean, default: false, desc: 'Sort descending'
+    def fielding
+      Commands::Fielding.new(options: options, shell: shell).call
+    end
+
     desc 'lineup', 'Suggest batting order for the next game based on recent OBP'
     option :date, type: :string, desc: 'Target game date (YYYY-MM-DD, default: next scheduled game)'
     def lineup

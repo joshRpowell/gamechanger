@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-20
+
+### Added — Fielding pivot command
+
+- `gamechanger fielding` — new subcommand that renders a player × position pivot of season fielding stints. Columns: `Player`, `G` (distinct games fielded), then fielding positions in canonical order (`P C 1B 2B 3B SS LF CF RF DH EH`) limited to positions actually present in the data, then `Total` (sum of position stints).
+- Cell metric for position columns is intentionally **stint count**, not innings — the boxscore doesn't carry per-inning data. (See `docs/research/gc-api-notes.md` for the full data-shape note.)
+- Supports `--sort COL` and `--desc`. Sort keys: `player`, `g` / `games`, `total`, or any position code present (case-insensitive — `--sort SS` and `--sort ss` both resolve). Default sort is `total` desc with player-name ascending tiebreak.
+- `--format table | markdown | json`. JSON shape is an array of `{ player_name, games, positions: { POS: N, ... }, total: N }` with zero-count positions omitted from each row's hash.
+- No schema changes — reuses the `game_fielding_positions` table introduced in 0.4.0.
+
 ## [0.4.0] - 2026-05-20
 
 ### Added — Fielding positions

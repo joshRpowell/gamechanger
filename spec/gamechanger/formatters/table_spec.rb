@@ -766,4 +766,31 @@ RSpec.describe Gamechanger::Formatters::Table do
       expect(output).not_to include('Pitching Arc')
     end
   end
+
+  describe '#fielding' do
+    it 'returns a friendly message when rows are empty' do
+      expect(fmt.fielding([], %w[P SS])).to include('No fielding data found')
+    end
+
+    it 'renders Player, G (games), position columns in given order, and Total' do
+      rows = [
+        { 'player_name' => 'Alice Smith', 'games' => 2, 'positions' => { 'SS' => 3, 'P' => 1 }, 'total' => 4 },
+        { 'player_name' => 'Bob Jones',   'games' => 3, 'positions' => { '1B' => 2, 'CF' => 1 }, 'total' => 3 }
+      ]
+      output = fmt.fielding(rows, %w[P SS 1B CF])
+      expect(output).to include('Player')
+      expect(output).to include('│ G │')
+      expect(output).to include('Total')
+      expect(output).to include('Alice Smith')
+      expect(output).to include('Bob Jones')
+      ['P', 'SS', '1B', 'CF'].each { |code| expect(output).to include(code) }
+    end
+
+    it "renders zero counts as '.'" do
+      rows = [{ 'player_name' => 'Solo', 'games' => 1, 'positions' => { 'SS' => 5 }, 'total' => 5 }]
+      output = fmt.fielding(rows, %w[P SS])
+      expect(output).to include('.')
+      expect(output).to match(/Solo.*5.*5/m)
+    end
+  end
 end

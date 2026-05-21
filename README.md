@@ -55,6 +55,7 @@ team_id: "12345"    # find this in the URL when viewing your team on web.gc.com
 | `availability` | Pitcher availability and rest status for the next game |
 | `plan` | Tournament pitcher deployment plan |
 | `hitting` | Season batting stats |
+| `fielding` | Season fielding position usage (player × position pivot) |
 | `lineup` | Suggested batting order based on recent OBP |
 | `equity` | Playing time participation for all players |
 | `progress` | Player development arcs across the season |
@@ -101,6 +102,17 @@ bundle exec gamechanger lineup
 bundle exec gamechanger lineup --date 2026-03-21
 ```
 
+### Fielding positions
+
+```bash
+bundle exec gamechanger fielding                 # season pivot, sorted by total stints desc
+bundle exec gamechanger fielding --sort SS --desc  # most-used shortstops first
+bundle exec gamechanger fielding --sort player    # alphabetical
+bundle exec gamechanger fielding --format json    # JSON array per player
+```
+
+Rows are players; columns are `G` (distinct games fielded), then fielding positions with at least one stint stored this season (canonical order `P C 1B 2B 3B SS LF CF RF DH EH`), then `Total` (sum across positions). Cells under position columns are stint counts (not innings — the boxscore doesn't carry inning numbers). Sort by games with `--sort g` (or `--sort games`).
+
 ### Player development
 
 ```bash
@@ -112,7 +124,7 @@ bundle exec gamechanger equity
 
 ### Sorting reports
 
-`hitting`, `pitches`, and `equity` accept `--sort COL` (with optional `--desc`) to order the table by any column. Computed metrics (AVG, OBP, Strike%) are supported alongside stored columns; missing values always sort last.
+`hitting`, `pitches`, `equity`, and `fielding` accept `--sort COL` (with optional `--desc`) to order the table by any column. Computed metrics (AVG, OBP, Strike%) are supported alongside stored columns; missing values always sort last. Sort keys are case-insensitive (`--sort SS` and `--sort ss` are equivalent).
 
 ```bash
 bundle exec gamechanger hitting --sort avg --desc        # top hitters first

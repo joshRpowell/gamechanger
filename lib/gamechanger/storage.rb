@@ -227,6 +227,43 @@ module Gamechanger
       end
     end
 
+    # Per-player aggregated fielding stints across the season window.
+    # Returns one entry per player whose stints fall in [season_start, next_season_start).
+    # Shape: [{ 'player_name' => String, 'games' => Integer, 'positions' => { 'POS' => count, ... }, 'total' => Integer }]
+    # Rows are ordered by player_name ASC; the command layer (Commands::Fielding) handles the
+    # user-facing default sort because Sorting.apply no-ops on a nil sort_key.
+    # @return [Array<Hash>]
+    def season_fielding_summary
+      raw = db.execute(<<~SQL, [season_start, next_season_start])
+        SELECT gfp.player_name, gfp.position, COUNT(*) AS n
+        FROM game_fielding_positions gfp
+        JOIN games g ON g.game_id = gfp.game_id
+        WHERE g.game_date >= ? AND g.game_date < ?
+        GROUP BY gfp.player_name, gfp.position
+        ORDER BY gfp.player_name ASC, gfp.position ASC
+      SQL
+
+      games_per_player = db.execute(<<~SQL, [season_start, next_season_start]).to_h { |r| [r['player_name'], r['games'].to_i] }
+        SELECT gfp.player_name, COUNT(DISTINCT gfp.game_id) AS games
+        FROM game_fielding_positions gfp
+        JOIN games g ON g.game_id = gfp.game_id
+        WHERE g.game_date >= ? AND g.game_date < ?
+        GROUP BY gfp.player_name
+      SQL
+
+      grouped = raw.each_with_object({}) do |row, h|
+        bucket = h[row['player_name']] ||= {
+          'player_name' => row['player_name'],
+          'games'       => games_per_player[row['player_name']].to_i,
+          'positions'   => {},
+          'total'       => 0
+        }
+        bucket['positions'][row['position']] = row['n'].to_i
+        bucket['total'] += row['n'].to_i
+      end
+      grouped.values
+    end
+
     # Season batting summary: all batters with totals and 7-day window.
     # Sorted by season OBP descending.
     # @return [Array<Hash>] one row per batter

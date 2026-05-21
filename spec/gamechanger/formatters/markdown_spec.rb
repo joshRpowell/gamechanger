@@ -784,4 +784,29 @@ RSpec.describe Gamechanger::Formatters::Markdown do
       expect(output).to include('✅ Available')
     end
   end
+
+  describe '#fielding' do
+    it 'returns an italic no-data message when rows are empty' do
+      expect(fmt.fielding([], %w[P SS])).to include('_No fielding data found')
+    end
+
+    it 'renders a markdown table with Player, G, position columns, and Total' do
+      rows = [
+        { 'player_name' => 'Alice Smith', 'games' => 2, 'positions' => { 'SS' => 3, 'P' => 1 }, 'total' => 4 },
+        { 'player_name' => 'Bob Jones',   'games' => 1, 'positions' => { '1B' => 2 }, 'total' => 2 }
+      ]
+      output = fmt.fielding(rows, %w[P SS 1B])
+      expect(output).to include('| Player')
+      expect(output).to include('| G ')
+      expect(output).to include('Total')
+      expect(output).to include('Alice Smith')
+      expect(output).to include('Bob Jones')
+    end
+
+    it "renders zero counts as '.' in markdown cells" do
+      rows = [{ 'player_name' => 'Solo', 'games' => 1, 'positions' => { 'SS' => 1 }, 'total' => 1 }]
+      output = fmt.fielding(rows, %w[P SS])
+      expect(output).to include('| .')
+    end
+  end
 end

@@ -174,6 +174,17 @@ module Gamechanger
         md_table(headings, data)
       end
 
+      def fielding(rows, columns)
+        return "_No fielding data found for this season._" if rows.empty?
+
+        headings = ['Player', 'G'] + columns + ['Total']
+        data = rows.map do |r|
+          cells = columns.map { |code| r['positions'][code].to_i.positive? ? r['positions'][code] : '.' }
+          [r['player_name'], r['games'].to_i] + cells + [r['total']]
+        end
+        md_table(headings, data)
+      end
+
       def batter_games(batter_name, rows)
         return "_No games found for batter: #{batter_name}_" if rows.empty?
 
