@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-20
+
 ### Added — Fielding pivot command
 
 - `gamechanger fielding` — new subcommand that renders a player × position pivot of season fielding stints. Columns: `Player`, `G` (distinct games fielded), then fielding positions in canonical order (`P C 1B 2B 3B SS LF CF RF DH EH`) limited to positions actually present in the data, then `Total` (sum of position stints).
