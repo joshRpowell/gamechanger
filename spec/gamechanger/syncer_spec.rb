@@ -90,6 +90,10 @@ RSpec.describe Gamechanger::Syncer do
             'category' => 'lineup',
             'stats' => [
               { 'player_id' => 'p2', 'player_text' => '(SS, P)', 'stats' => { 'AB' => 3, 'H' => 2, 'BB' => 0, 'SO' => 1 } }
+            ],
+            'extra' => [
+              { 'stat_name' => '2B', 'stats' => [{ 'player_id' => 'p2', 'value' => 1 }] },
+              { 'stat_name' => 'HR', 'stats' => [{ 'player_id' => 'p2', 'value' => 1 }] }
             ]
           }
         ]
@@ -157,6 +161,16 @@ RSpec.describe Gamechanger::Syncer do
         rows = storage.season_batting_summary
         expect(rows.length).to eq(1)
         expect(rows.first['batter_name']).to eq('Bob Jones')
+      end
+
+      it 'stores doubles/triples/home_runs from lineup.extra[]' do
+        syncer.run
+        row = storage.season_batting_summary.first
+        # H=2, 2B=1, HR=1 → 1B=0
+        expect(row['total_2b']).to eq(1)
+        expect(row['total_3b']).to eq(0)
+        expect(row['total_hr']).to eq(1)
+        expect(row['total_1b']).to eq(0)
       end
 
       it 'stores fielding positions parsed from player_text' do
