@@ -15,9 +15,18 @@ RSpec.describe Gamechanger::BatterStatsParser do
           {
             'category' => 'lineup',
             'stats' => [
-              { 'player_id' => 'player-1', 'stats' => { 'AB' => 3, 'H' => 2, 'BB' => 1, 'K' => 0 } },
-              { 'player_id' => 'player-2', 'stats' => { 'AB' => 4, 'H' => 1, 'BB' => 0, 'K' => 2 } },
-              { 'player_id' => 'player-3', 'stats' => { 'AB' => 3, 'H' => 0, 'BB' => 0, 'K' => 1 } }
+              { 'player_id' => 'player-1', 'stats' => { 'AB' => 3, 'H' => 2, 'BB' => 1, 'SO' => 0 } },
+              { 'player_id' => 'player-2', 'stats' => { 'AB' => 4, 'H' => 1, 'BB' => 0, 'SO' => 2 } },
+              { 'player_id' => 'player-3', 'stats' => { 'AB' => 3, 'H' => 0, 'BB' => 0, 'SO' => 1 } }
+            ],
+            'extra' => [
+              {
+                'stat_name' => 'HBP',
+                'stats' => [
+                  { 'player_id' => 'player-1', 'value' => 1 },
+                  { 'player_id' => 'player-3', 'value' => 2 }
+                ]
+              }
             ]
           }
         ]
@@ -52,9 +61,42 @@ RSpec.describe Gamechanger::BatterStatsParser do
       expect(mason[:walks]).to eq(1)
     end
 
-    it 'extracts strikeouts correctly' do
+    it 'extracts strikeouts correctly from the SO key' do
       jase = parser.batter_stats.find { |s| s[:batter_name] == 'Jase Passino' }
       expect(jase[:strikeouts]).to eq(2)
+    end
+
+    it 'extracts hbp from the lineup extra[] array, joined by player_id' do
+      mason = parser.batter_stats.find { |s| s[:batter_name] == 'Mason Marrero' }
+      alex  = parser.batter_stats.find { |s| s[:batter_name] == 'Alex Chen' }
+      jase  = parser.batter_stats.find { |s| s[:batter_name] == 'Jase Passino' }
+      expect(mason[:hbp]).to eq(1)
+      expect(alex[:hbp]).to eq(2)
+      expect(jase[:hbp]).to eq(0) # no HBP entry for player-2
+    end
+
+    it 'defaults hbp to 0 when the extra[] array has no HBP entry' do
+      response['wGP47FexatoQ']['groups'].first['extra'] = []
+      expect(parser.batter_stats.map { |s| s[:hbp] }).to all(eq(0))
+    end
+
+    it 'defaults hbp to 0 when the extra[] array is absent entirely' do
+      response['wGP47FexatoQ']['groups'].first.delete('extra')
+      expect(parser.batter_stats.map { |s| s[:hbp] }).to all(eq(0))
+    end
+
+    it 'silently ignores HBP entries for unknown player_ids' do
+      response['wGP47FexatoQ']['groups'].first['extra'].first['stats'] << {
+        'player_id' => 'unknown-id', 'value' => 5
+      }
+      expect(parser.batter_stats.length).to eq(3)
+      expect(parser.batter_stats.map { |s| s[:hbp] }).to contain_exactly(1, 0, 2)
+    end
+
+    it 'defaults strikeouts to 0 when the SO key is absent from stats hash' do
+      response['wGP47FexatoQ']['groups'].first['stats'].first['stats'].delete('SO')
+      mason = parser.batter_stats.find { |s| s[:batter_name] == 'Mason Marrero' }
+      expect(mason[:strikeouts]).to eq(0)
     end
 
     it 'skips entries where player_id is not in the players array' do
