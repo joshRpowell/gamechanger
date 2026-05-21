@@ -26,6 +26,24 @@ RSpec.describe Gamechanger::BatterStatsParser do
                   { 'player_id' => 'player-1', 'value' => 1 },
                   { 'player_id' => 'player-3', 'value' => 2 }
                 ]
+              },
+              {
+                'stat_name' => '2B',
+                'stats' => [
+                  { 'player_id' => 'player-1', 'value' => 1 }
+                ]
+              },
+              {
+                'stat_name' => '3B',
+                'stats' => [
+                  { 'player_id' => 'player-2', 'value' => 1 }
+                ]
+              },
+              {
+                'stat_name' => 'HR',
+                'stats' => [
+                  { 'player_id' => 'player-1', 'value' => 1 }
+                ]
               }
             ]
           }
@@ -102,6 +120,45 @@ RSpec.describe Gamechanger::BatterStatsParser do
     it 'skips entries where player_id is not in the players array' do
       response['wGP47FexatoQ']['groups'].first['stats'] << { 'player_id' => 'unknown-id', 'stats' => { 'AB' => 2 } }
       expect(parser.batter_stats.length).to eq(3)
+    end
+
+    it 'extracts 2B/3B/HR from extra[], joined by player_id' do
+      mason = parser.batter_stats.find { |s| s[:batter_name] == 'Mason Marrero' }
+      jase  = parser.batter_stats.find { |s| s[:batter_name] == 'Jase Passino' }
+      alex  = parser.batter_stats.find { |s| s[:batter_name] == 'Alex Chen' }
+      expect(mason[:doubles]).to eq(1)
+      expect(mason[:triples]).to eq(0)
+      expect(mason[:home_runs]).to eq(1)
+      expect(jase[:doubles]).to eq(0)
+      expect(jase[:triples]).to eq(1)
+      expect(jase[:home_runs]).to eq(0)
+      expect(alex[:doubles]).to eq(0)
+      expect(alex[:triples]).to eq(0)
+      expect(alex[:home_runs]).to eq(0)
+    end
+
+    it 'defaults 2B/3B/HR to 0 when their extra[] entries are absent' do
+      response['wGP47FexatoQ']['groups'].first['extra'] = []
+      stats = parser.batter_stats
+      expect(stats.map { |s| s[:doubles] }).to all(eq(0))
+      expect(stats.map { |s| s[:triples] }).to all(eq(0))
+      expect(stats.map { |s| s[:home_runs] }).to all(eq(0))
+    end
+
+    it 'defaults 2B/3B/HR to 0 when extra[] is absent entirely' do
+      response['wGP47FexatoQ']['groups'].first.delete('extra')
+      stats = parser.batter_stats
+      expect(stats.map { |s| s[:doubles] }).to all(eq(0))
+      expect(stats.map { |s| s[:triples] }).to all(eq(0))
+      expect(stats.map { |s| s[:home_runs] }).to all(eq(0))
+    end
+
+    it 'silently ignores 2B/3B/HR entries for unknown player_ids' do
+      response['wGP47FexatoQ']['groups'].first['extra'].find { |e| e['stat_name'] == '2B' }['stats'] << {
+        'player_id' => 'ghost-id', 'value' => 9
+      }
+      expect(parser.batter_stats.length).to eq(3)
+      expect(parser.batter_stats.map { |s| s[:doubles] }).to contain_exactly(1, 0, 0)
     end
   end
 
