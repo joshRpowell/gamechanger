@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-21
+
+### Added
+- Hit-type breakdown on `gamechanger hitting`: `1B`, `2B`, `3B`, `HR` columns inserted between `H` and `BB`. `1B` is derived as `H - 2B - 3B - HR` (clamped to 0); `2B`, `3B`, `HR` are sourced from `lineup.extra[]` and stored. Run `gamechanger refresh` to backfill historical games.
+- Migration v6: new `doubles`, `triples`, `home_runs` integer columns on `game_batter_stats` (NOT NULL DEFAULT 0).
+
+### Changed
+- `BatterStatsParser#batter_stats` returns three additional keys (`doubles`, `triples`, `home_runs`), joined from `lineup.extra[]` by `player_id` using the existing HBP pattern.
+- `season_batting_summary` SQL exposes `total_1b`, `total_2b`, `total_3b`, `total_hr` aggregates. JSON formatter emits `singles`, `doubles`, `triples`, `home_runs` keys.
+
 ## [0.6.0] - 2026-05-21
 
 ### Added
