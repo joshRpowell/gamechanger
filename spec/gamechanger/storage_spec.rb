@@ -846,6 +846,30 @@ RSpec.describe Gamechanger::Storage do
       )
       expect(result).not_to be_empty
     end
+
+    it 'applies v6 migration on fresh DB' do
+      versions = storage.send(:db).execute('SELECT version FROM schema_migrations').map { |r| r['version'] }
+      expect(versions).to include(6)
+    end
+
+    it 'adds doubles/triples/home_runs columns with NOT NULL DEFAULT 0' do
+      cols = storage.send(:db).execute('PRAGMA table_info(game_batter_stats)')
+      by_name = cols.each_with_object({}) { |c, h| h[c['name']] = c }
+      %w[doubles triples home_runs].each do |col|
+        expect(by_name[col]).not_to be_nil, "expected column #{col} on game_batter_stats"
+        expect(by_name[col]['notnull']).to eq(1)
+        expect(by_name[col]['dflt_value']).to eq('0')
+      end
+    end
+
+    it 'is idempotent — running migrate! twice does not re-apply v6' do
+      db = storage.send(:db)
+      described_class.send(:new, data_dir: ':memory:').send(:db) # warm a separate instance
+      # Re-invoke private migrate! and confirm schema_migrations still has exactly one row at v6
+      storage.send(:migrate!, db)
+      v6_count = db.execute('SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 6').first['n']
+      expect(v6_count).to eq(1)
+    end
   end
 
   describe '#stale_games' do

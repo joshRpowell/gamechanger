@@ -75,8 +75,13 @@ module Gamechanger
         CREATE INDEX idx_gfp_game ON game_fielding_positions (game_id);
         CREATE INDEX idx_gfp_name ON game_fielding_positions (player_name);
       SQL
-      [5, <<~SQL]
+      [5, <<~SQL],
         ALTER TABLE game_batter_stats ADD COLUMN hbp INTEGER NOT NULL DEFAULT 0;
+      SQL
+      [6, <<~SQL]
+        ALTER TABLE game_batter_stats ADD COLUMN doubles   INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE game_batter_stats ADD COLUMN triples   INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE game_batter_stats ADD COLUMN home_runs INTEGER NOT NULL DEFAULT 0;
       SQL
     ].freeze
 
