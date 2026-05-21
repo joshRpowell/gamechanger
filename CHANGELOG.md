@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Rate stats on `gamechanger pitches`: `ERA`, `WHIP`, `K/9` shown by default; `BB/9`, `BAA`, `P/IP` gated behind `--advanced`. All sortable via the existing `--sort` flag (`era`, `whip`, `k9`, `bb9`, `baa`, `p_ip`, `p_bf`).
+- `gamechanger pitches --pitcher NAME` per-outing view: now shows raw counts (`BF`, `H`, `R`, `ER`, `BB`, `SO`) per outing plus a cumulative footer with derived ERA, WHIP, K/9, and BAA. Per-outing rates intentionally omitted (single-outing rates are too noisy at youth-game sample sizes).
+- Migration v7: 8 new integer columns on `game_pitcher_stats` — `batters_faced`, `hits_allowed`, `runs_allowed`, `earned_runs`, `walks_issued`, `strikeouts_recorded`, `wild_pitches`, `hbp_allowed` (NOT NULL DEFAULT 0). Existing rows default to 0. Run `gamechanger refresh` to backfill historical games from cached boxscores.
+
+### Changed
+- `BoxscoreParser#pitcher_stats` returns 8 additional keys (`batters_faced`, `wild_pitches`, `hbp_allowed`, `hits_allowed`, `runs_allowed`, `earned_runs`, `walks_issued`, `strikeouts_recorded`). `BF` is always present in the boxscore; `WP` and `HBP` are sparse and default to 0 when absent from `pitching.extra[]`.
+- `Storage#season_summary` SQL exposes `total_bf`, `total_h`, `total_r`, `total_er`, `total_bb`, `total_so`, `total_wp`, `total_hbp` aggregates used to derive the new rate columns at query time.
+- `Strike%` column header abbreviated to `S%` in the default pitches table to leave room for `ERA`, `WHIP`, `K/9`.
+
 ## [0.7.0] - 2026-05-21
 
 ### Added

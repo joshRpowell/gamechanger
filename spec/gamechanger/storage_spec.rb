@@ -108,6 +108,80 @@ RSpec.describe Gamechanger::Storage do
     end
   end
 
+  describe 'pitcher rate-stat fields (migration v7)' do
+    before do
+      storage.upsert_game(game_id: 'g1', game_date: '2026-03-01', opponent: 'A', home_away: 'home', status: 'final')
+      storage.upsert_game(game_id: 'g2', game_date: '2026-03-08', opponent: 'B', home_away: 'away', status: 'final')
+      storage.upsert_pitcher_stats(
+        game_id: 'g1',
+        stats: [
+          { pitcher_name: 'Alice Smith', pitches_thrown: 72, strikes_thrown: 45, innings_pitched: 5.0,
+            batters_faced: 22, hits_allowed: 4, runs_allowed: 2, earned_runs: 2,
+            walks_issued: 3, strikeouts_recorded: 7, wild_pitches: 1, hbp_allowed: 0 }
+        ]
+      )
+    end
+
+    it 'persists and returns all new pitcher fields via season_summary totals' do
+      rows = storage.season_summary
+      alice = rows.find { |r| r['pitcher_name'] == 'Alice Smith' }
+      expect(alice).to include(
+        'total_bf' => 22, 'total_h' => 4, 'total_r' => 2, 'total_er' => 2,
+        'total_bb' => 3, 'total_so' => 7, 'total_wp' => 1, 'total_hbp' => 0
+      )
+    end
+
+    it 'sums new fields across multiple games' do
+      storage.upsert_pitcher_stats(
+        game_id: 'g2',
+        stats: [
+          { pitcher_name: 'Alice Smith', pitches_thrown: 60, strikes_thrown: 38, innings_pitched: 4.0,
+            batters_faced: 18, hits_allowed: 6, runs_allowed: 3, earned_runs: 3,
+            walks_issued: 2, strikeouts_recorded: 5, wild_pitches: 0, hbp_allowed: 2 }
+        ]
+      )
+      alice = storage.season_summary.find { |r| r['pitcher_name'] == 'Alice Smith' }
+      expect(alice).to include(
+        'total_bf' => 40, 'total_h' => 10, 'total_er' => 5, 'total_so' => 12, 'total_hbp' => 2
+      )
+    end
+
+    it 'is idempotent on re-upsert (latest values win)' do
+      storage.upsert_pitcher_stats(
+        game_id: 'g1',
+        stats: [
+          { pitcher_name: 'Alice Smith', pitches_thrown: 80, strikes_thrown: 50, innings_pitched: 5.0,
+            batters_faced: 25, hits_allowed: 5, runs_allowed: 3, earned_runs: 3,
+            walks_issued: 4, strikeouts_recorded: 8, wild_pitches: 2, hbp_allowed: 1 }
+        ]
+      )
+      alice = storage.season_summary.find { |r| r['pitcher_name'] == 'Alice Smith' }
+      expect(alice).to include('total_bf' => 25, 'total_er' => 3, 'total_wp' => 2, 'total_hbp' => 1)
+    end
+
+    it 'defaults missing keys to 0 via to_i (older parser payloads)' do
+      storage.upsert_pitcher_stats(
+        game_id: 'g2',
+        stats: [
+          # Only the old keys — new keys absent
+          { pitcher_name: 'Bob Jones', pitches_thrown: 30, strikes_thrown: 18, innings_pitched: 2.0 }
+        ]
+      )
+      bob = storage.season_summary.find { |r| r['pitcher_name'] == 'Bob Jones' }
+      expect(bob).to include(
+        'total_bf' => 0, 'total_h' => 0, 'total_er' => 0, 'total_wp' => 0, 'total_hbp' => 0
+      )
+    end
+
+    it 'surfaces per-outing new fields via pitcher_games' do
+      row = storage.pitcher_games('Alice').first
+      expect(row).to include(
+        'batters_faced' => 22, 'earned_runs' => 2, 'walks_issued' => 3,
+        'strikeouts_recorded' => 7, 'wild_pitches' => 1, 'hbp_allowed' => 0
+      )
+    end
+  end
+
   describe '#game_by_date' do
     before do
       storage.upsert_game(game_id: 'g1', game_date: '2026-03-10', opponent: 'A', home_away: 'home', status: 'final')

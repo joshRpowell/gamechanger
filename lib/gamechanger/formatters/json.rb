@@ -5,15 +5,21 @@ require 'json'
 module Gamechanger
   module Formatters
     class Json
-      def season_summary(rows)
+      # JSON output always includes all derived rate fields; the `advanced:`
+      # kwarg is accepted for signature parity with the table/markdown
+      # formatters but does not gate any fields.
+      def season_summary(rows, advanced: false)
+        _ = advanced
         JSON.pretty_generate(rows.map { |r| stringify_keys(r) })
       end
 
-      def pitcher_games(pitcher_name, rows)
-        JSON.pretty_generate({
+      def pitcher_games(pitcher_name, rows, totals: nil)
+        payload = {
           pitcher: pitcher_name,
           games: rows.map { |r| stringify_keys(r) }
-        })
+        }
+        payload[:totals] = stringify_keys(totals) if totals
+        JSON.pretty_generate(payload)
       end
 
       def game_breakdown(games)
