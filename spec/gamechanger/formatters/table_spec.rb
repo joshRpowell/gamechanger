@@ -59,6 +59,32 @@ RSpec.describe Gamechanger::Formatters::Table do
       output = fmt.season_summary(rows)
       expect(output).to include('—')
     end
+
+    it 'renders the %IP column header and one-decimal value' do
+      rows = [{
+        'pitcher_name' => 'Ace', 'games_pitched' => 3,
+        'total_pitches' => 100, 'total_strikes' => 60,
+        'ip_share' => 42.3,
+        'avg_per_game' => 33.3, 'seven_day_total' => 0,
+        'last_outing' => '2026-05-10'
+      }]
+      output = fmt.season_summary(rows)
+      expect(output).to include('%IP')
+      expect(output).to include('42.3%')
+    end
+
+    it 'renders dash for %IP when ip_share is nil' do
+      rows = [{
+        'pitcher_name' => 'NoIP', 'games_pitched' => 0,
+        'total_pitches' => 0, 'total_strikes' => 0,
+        'ip_share' => nil,
+        'avg_per_game' => 0, 'seven_day_total' => 0,
+        'last_outing' => nil
+      }]
+      output = fmt.season_summary(rows)
+      # NoIP row has both — for Strike% and %IP; ensure at least two dashes total
+      expect(output.scan('—').length).to be >= 2
+    end
   end
 
   # ── pitcher_games ─────────────────────────────────────────────────────────

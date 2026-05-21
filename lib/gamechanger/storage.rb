@@ -577,6 +577,7 @@ module Gamechanger
           COUNT(DISTINCT gps.game_id)                                  AS games_pitched,
           SUM(gps.pitches_thrown)                                      AS total_pitches,
           SUM(gps.strikes_thrown)                                      AS total_strikes,
+          SUM(gps.innings_pitched)                                     AS total_ip,
           ROUND(AVG(gps.pitches_thrown), 1)                            AS avg_per_game,
           SUM(CASE WHEN g.game_date >= date('now', '-7 days')
                    THEN gps.pitches_thrown ELSE 0 END)                 AS seven_day_total,

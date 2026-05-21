@@ -6,12 +6,13 @@ module Gamechanger
       def season_summary(rows)
         return "_No pitch data found for this season._" if rows.empty?
 
-        headings = ['Pitcher', 'GP', 'Pitches', 'Strikes', 'Balls', 'Strike%', 'Avg/Game', '7-Day', 'Last Outing']
+        headings = ['Pitcher', 'GP', 'Pitches', 'Strikes', 'Balls', 'Strike%', '%IP', 'Avg/Game', '7-Day', 'Last Outing']
         data = rows.map do |r|
-          strikes = r['total_strikes'].to_i
-          pitches = r['total_pitches'].to_i
-          balls   = pitches - strikes
-          pct     = pitches > 0 ? format('%.0f%%', strikes * 100.0 / pitches) : '—'
+          strikes  = r['total_strikes'].to_i
+          pitches  = r['total_pitches'].to_i
+          balls    = pitches - strikes
+          pct      = pitches > 0 ? format('%.0f%%', strikes * 100.0 / pitches) : '—'
+          ip_share = r['ip_share'].nil? ? '—' : format('%.1f%%', r['ip_share'])
           [
             r['pitcher_name'],
             r['games_pitched'],
@@ -19,6 +20,7 @@ module Gamechanger
             strikes,
             balls,
             pct,
+            ip_share,
             r['avg_per_game'],
             r['seven_day_total'],
             r['last_outing'] || '—'

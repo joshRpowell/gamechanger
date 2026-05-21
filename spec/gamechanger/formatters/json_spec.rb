@@ -29,6 +29,18 @@ RSpec.describe Gamechanger::Formatters::Json do
       result = JSON.parse(fmt.season_summary(rows))
       expect(result.first.keys).to all(be_a(String))
     end
+
+    it 'passes ip_share through as a numeric value' do
+      rows = [{ 'pitcher_name' => 'Ace', 'ip_share' => 42.3 }]
+      result = JSON.parse(fmt.season_summary(rows))
+      expect(result.first['ip_share']).to be_within(0.001).of(42.3)
+    end
+
+    it 'passes ip_share through as null when nil' do
+      rows = [{ 'pitcher_name' => 'NoIP', 'ip_share' => nil }]
+      result = JSON.parse(fmt.season_summary(rows))
+      expect(result.first['ip_share']).to be_nil
+    end
   end
 
   # ── pitcher_games ─────────────────────────────────────────────────────────

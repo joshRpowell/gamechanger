@@ -30,22 +30,27 @@ module Gamechanger
       private
 
       SEASON_SORT_KEYS = {
-        'name'    => ->(r) { r['pitcher_name'] },
-        'gp'      => ->(r) { r['games_pitched'].to_i },
-        'pitches' => ->(r) { r['total_pitches'].to_i },
-        'strikes' => ->(r) { r['total_strikes'].to_i },
-        'balls'   => ->(r) { r['total_pitches'].to_i - r['total_strikes'].to_i },
-        'pct'     => lambda do |r|
+        'name'     => ->(r) { r['pitcher_name'] },
+        'gp'       => ->(r) { r['games_pitched'].to_i },
+        'pitches'  => ->(r) { r['total_pitches'].to_i },
+        'strikes'  => ->(r) { r['total_strikes'].to_i },
+        'balls'    => ->(r) { r['total_pitches'].to_i - r['total_strikes'].to_i },
+        'pct'      => lambda do |r|
           pitches = r['total_pitches'].to_i
           pitches.positive? ? r['total_strikes'].to_f / pitches : nil
         end,
-        'avg'     => ->(r) { r['avg_per_game'].to_f },
-        '7day'    => ->(r) { r['seven_day_total'].to_i },
-        'last'    => ->(r) { r['last_outing'] }
+        'ip_share' => ->(r) { r['ip_share'] },
+        'avg'      => ->(r) { r['avg_per_game'].to_f },
+        '7day'     => ->(r) { r['seven_day_total'].to_i },
+        'last'     => ->(r) { r['last_outing'] }
       }.freeze
 
       def show_season(storage, formatter)
         rows = storage.season_summary
+        team_total_ip = rows.sum { |r| r['total_ip'].to_f }
+        rows.each do |r|
+          r['ip_share'] = team_total_ip.positive? ? (r['total_ip'].to_f / team_total_ip * 100.0) : nil
+        end
         rows = apply_sort(rows, SEASON_SORT_KEYS)
         puts formatter.season_summary(rows)
       end
