@@ -232,13 +232,13 @@ RSpec.describe Gamechanger::Storage do
       storage.upsert_batter_stats(
         game_id: 'g1',
         stats: [
-          { batter_name: 'Mason Marrero', at_bats: 3, hits: 2, walks: 1, strikeouts: 0 },
-          { batter_name: 'Jase Passino',  at_bats: 4, hits: 1, walks: 0, strikeouts: 2 }
+          { batter_name: 'Mason Marrero', at_bats: 3, hits: 2, walks: 1, strikeouts: 0, hbp: 1 },
+          { batter_name: 'Jase Passino',  at_bats: 4, hits: 1, walks: 0, strikeouts: 2, hbp: 0 }
         ]
       )
       storage.upsert_batter_stats(
         game_id: 'g2',
-        stats: [{ batter_name: 'Mason Marrero', at_bats: 4, hits: 3, walks: 1, strikeouts: 1 }]
+        stats: [{ batter_name: 'Mason Marrero', at_bats: 4, hits: 3, walks: 1, strikeouts: 1, hbp: 2 }]
       )
     end
 
@@ -276,6 +276,23 @@ RSpec.describe Gamechanger::Storage do
       )
       names = storage.season_batting_summary.map { |r| r['batter_name'] }
       expect(names).not_to include('Zero Hitter')
+    end
+
+    it 'aggregates hbp across games into total_hbp' do
+      rows = storage.season_batting_summary
+      mason = rows.find { |r| r['batter_name'] == 'Mason Marrero' }
+      expect(mason['total_hbp']).to eq(3) # 1 from g1, 2 from g2
+    end
+
+    it 'defaults total_hbp to 0 when the upsert payload omits the hbp key' do
+      storage.upsert_game(game_id: 'g3', game_date: '2026-03-15', opponent: 'C', home_away: 'home', status: 'final')
+      storage.upsert_batter_stats(
+        game_id: 'g3',
+        stats: [{ batter_name: 'No HBP', at_bats: 2, hits: 1, walks: 0, strikeouts: 0 }]
+      )
+      rows = storage.season_batting_summary
+      no_hbp = rows.find { |r| r['batter_name'] == 'No HBP' }
+      expect(no_hbp['total_hbp']).to eq(0)
     end
   end
 

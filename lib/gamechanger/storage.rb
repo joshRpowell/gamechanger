@@ -61,7 +61,7 @@ module Gamechanger
         CREATE INDEX idx_gbs_batter ON game_batter_stats (batter_name);
         CREATE INDEX idx_gbs_game   ON game_batter_stats (game_id);
       SQL
-      [4, <<~SQL]
+      [4, <<~SQL],
         CREATE TABLE game_fielding_positions (
           id           INTEGER PRIMARY KEY,
           game_id      TEXT NOT NULL REFERENCES games(game_id) ON DELETE CASCADE,
@@ -74,6 +74,9 @@ module Gamechanger
         );
         CREATE INDEX idx_gfp_game ON game_fielding_positions (game_id);
         CREATE INDEX idx_gfp_name ON game_fielding_positions (player_name);
+      SQL
+      [5, <<~SQL]
+        ALTER TABLE game_batter_stats ADD COLUMN hbp INTEGER NOT NULL DEFAULT 0;
       SQL
     ].freeze
 
@@ -154,22 +157,23 @@ module Gamechanger
 
     # Upsert batter stats for a game. Safe to call repeatedly.
     # @param game_id [String] must already exist in games table
-    # @param stats [Array<Hash>] each with keys: batter_name, at_bats, hits, walks, strikeouts
+    # @param stats [Array<Hash>] each with keys: batter_name, at_bats, hits, walks, strikeouts, hbp
     def upsert_batter_stats(game_id:, stats:)
       now = iso_now
       db.transaction(:immediate) do
         stats.each do |stat|
           db.execute(<<~SQL, [game_id, stat[:batter_name], stat[:at_bats].to_i,
-            INSERT INTO game_batter_stats (game_id, batter_name, at_bats, hits, walks, strikeouts, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO game_batter_stats (game_id, batter_name, at_bats, hits, walks, strikeouts, hbp, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(game_id, batter_name) DO UPDATE SET
               at_bats    = excluded.at_bats,
               hits       = excluded.hits,
               walks      = excluded.walks,
               strikeouts = excluded.strikeouts,
+              hbp        = excluded.hbp,
               fetched_at = excluded.fetched_at
           SQL
-                           stat[:hits].to_i, stat[:walks].to_i, stat[:strikeouts].to_i, now])
+                           stat[:hits].to_i, stat[:walks].to_i, stat[:strikeouts].to_i, stat[:hbp].to_i, now])
         end
       end
     end
@@ -276,6 +280,7 @@ module Gamechanger
           SUM(gbs.hits)                                              AS total_hits,
           SUM(gbs.walks)                                             AS total_walks,
           SUM(gbs.strikeouts)                                        AS total_k,
+          SUM(gbs.hbp)                                               AS total_hbp,
           SUM(CASE WHEN g.game_date >= date('now', '-7 days')
                    THEN gbs.at_bats  ELSE 0 END)                    AS seven_day_ab,
           SUM(CASE WHEN g.game_date >= date('now', '-7 days')
