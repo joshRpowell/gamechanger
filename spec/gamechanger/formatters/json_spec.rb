@@ -501,4 +501,28 @@ RSpec.describe Gamechanger::Formatters::Json do
       expect(result['pitchers'].first['high_load_warning']).to be true
     end
   end
+
+  describe '#fielding' do
+    it 'emits an empty array for empty rows' do
+      expect(JSON.parse(fmt.fielding([], []))).to eq([])
+    end
+
+    it 'serializes player_name, games, positions hash, and total' do
+      rows = [
+        { 'player_name' => 'Alice', 'games' => 2, 'positions' => { 'SS' => 3, 'P' => 1 }, 'total' => 4 },
+        { 'player_name' => 'Bob',   'games' => 1, 'positions' => { '1B' => 2 }, 'total' => 2 }
+      ]
+      result = JSON.parse(fmt.fielding(rows, %w[P SS 1B]))
+      expect(result).to eq([
+        { 'player_name' => 'Alice', 'games' => 2, 'positions' => { 'SS' => 3, 'P' => 1 }, 'total' => 4 },
+        { 'player_name' => 'Bob',   'games' => 1, 'positions' => { '1B' => 2 }, 'total' => 2 }
+      ])
+    end
+
+    it 'omits zero-count positions from per-row positions hash' do
+      rows = [{ 'player_name' => 'Solo', 'games' => 1, 'positions' => { 'SS' => 1, 'P' => 0 }, 'total' => 1 }]
+      result = JSON.parse(fmt.fielding(rows, %w[P SS]))
+      expect(result.first['positions']).to eq('SS' => 1)
+    end
+  end
 end

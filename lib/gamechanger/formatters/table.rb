@@ -184,6 +184,20 @@ module Gamechanger
         t.to_s
       end
 
+      def fielding(rows, columns)
+        return "No fielding data found for this season." if rows.empty?
+
+        t = Terminal::Table.new(
+          headings: ['Player', 'G'] + columns + ['Total'],
+          rows: rows.map do |r|
+            cells = columns.map { |code| r['positions'][code].to_i.positive? ? r['positions'][code] : '.' }
+            [r['player_name'], r['games'].to_i] + cells + [r['total']]
+          end
+        )
+        t.style = TABLE_STYLE
+        t.to_s
+      end
+
       def batter_games(batter_name, rows)
         return "No games found for batter: #{batter_name}" if rows.empty?
 

@@ -709,6 +709,114 @@ RSpec.describe Gamechanger::Storage do
     end
   end
 
+  describe '#season_fielding_summary' do
+    let(:season) { Date.today.year }
+    subject(:storage) { described_class.new(data_dir: ':memory:', season: season) }
+
+    before do
+      storage.upsert_game(game_id: 'g1', game_date: "#{season}-03-01", opponent: 'A', home_away: 'home', status: 'final')
+      storage.upsert_game(game_id: 'g2', game_date: "#{season}-03-08", opponent: 'B', home_away: 'away', status: 'final')
+    end
+
+    it 'aggregates stints per player and position across games, including game count' do
+      storage.upsert_fielding_positions(
+        game_id: 'g1',
+        stints: [
+          { player_id: 'p1', player_name: 'Alice Smith', positions: %w[SS P] },
+          { player_id: 'p2', player_name: 'Bob Jones',   positions: %w[1B] }
+        ]
+      )
+      storage.upsert_fielding_positions(
+        game_id: 'g2',
+        stints: [
+          { player_id: 'p1', player_name: 'Alice Smith', positions: %w[SS SS] },
+          { player_id: 'p2', player_name: 'Bob Jones',   positions: %w[1B CF] }
+        ]
+      )
+
+      result = storage.season_fielding_summary
+      alice = result.find { |r| r['player_name'] == 'Alice Smith' }
+      bob   = result.find { |r| r['player_name'] == 'Bob Jones' }
+
+      expect(alice['games']).to eq(2)
+      expect(alice['positions']).to eq('SS' => 3, 'P' => 1)
+      expect(alice['total']).to eq(4)
+      expect(bob['games']).to eq(2)
+      expect(bob['positions']).to eq('1B' => 2, 'CF' => 1)
+      expect(bob['total']).to eq(3)
+    end
+
+    it "counts distinct games per player, not stints" do
+      storage.upsert_fielding_positions(
+        game_id: 'g1',
+        stints: [{ player_id: 'p1', player_name: 'Multi Stint', positions: %w[SS P 1B 2B] }]
+      )
+      result = storage.season_fielding_summary
+      expect(result.first['games']).to eq(1)
+      expect(result.first['total']).to eq(4)
+    end
+
+    it 'returns rows alphabetized by player_name' do
+      storage.upsert_fielding_positions(
+        game_id: 'g1',
+        stints: [
+          { player_id: 'p2', player_name: 'Zoe Adams',  positions: %w[CF] },
+          { player_id: 'p1', player_name: 'Alex Brown', positions: %w[P] }
+        ]
+      )
+      result = storage.season_fielding_summary
+      expect(result.map { |r| r['player_name'] }).to eq(['Alex Brown', 'Zoe Adams'])
+    end
+
+    it 'returns single-position players with a one-key positions hash' do
+      storage.upsert_fielding_positions(
+        game_id: 'g1',
+        stints: [{ player_id: 'p1', player_name: 'Solo Player', positions: %w[C] }]
+      )
+      result = storage.season_fielding_summary
+      expect(result).to eq([{ 'player_name' => 'Solo Player', 'games' => 1, 'positions' => { 'C' => 1 }, 'total' => 1 }])
+    end
+
+    it 'returns [] when no fielding rows exist' do
+      expect(storage.season_fielding_summary).to eq([])
+    end
+
+    it 'excludes games outside the configured season window' do
+      prior = described_class.new(data_dir: ':memory:', season: season - 1)
+      prior.upsert_game(game_id: 'gx', game_date: "#{season - 1}-06-01", opponent: 'X', home_away: 'home', status: 'final')
+      prior.upsert_fielding_positions(
+        game_id: 'gx',
+        stints: [{ player_id: 'p1', player_name: 'Out Of Window', positions: %w[SS] }]
+      )
+      expect(prior.season_fielding_summary.map { |r| r['player_name'] }).to include('Out Of Window')
+
+      current = described_class.new(data_dir: ':memory:', season: season)
+      current.upsert_game(game_id: 'g_in', game_date: "#{season}-03-15", opponent: 'Y', home_away: 'home', status: 'final')
+      current.upsert_fielding_positions(
+        game_id: 'g_in',
+        stints: [{ player_id: 'p1', player_name: 'In Window', positions: %w[SS] }]
+      )
+      result = current.season_fielding_summary
+      expect(result.map { |r| r['player_name'] }).to eq(['In Window'])
+      prior.close
+      current.close
+    end
+
+    it 'does not double-count when a game is re-synced (delete-then-insert)' do
+      storage.upsert_fielding_positions(
+        game_id: 'g1',
+        stints: [{ player_id: 'p1', player_name: 'Resync Player', positions: %w[SS P SS] }]
+      )
+      storage.upsert_fielding_positions(
+        game_id: 'g1',
+        stints: [{ player_id: 'p1', player_name: 'Resync Player', positions: %w[CF] }]
+      )
+      result = storage.season_fielding_summary
+      expect(result.first['positions']).to eq('CF' => 1)
+      expect(result.first['total']).to eq(1)
+    end
+  end
+
   describe 'schema_migrations' do
     it 'applies v4 migration on fresh DB' do
       versions = storage.send(:db).execute('SELECT version FROM schema_migrations').map { |r| r['version'] }

@@ -160,6 +160,14 @@ module Gamechanger
         })
       end
 
+      def fielding(rows, _columns)
+        data = rows.map do |r|
+          positions = (r['positions'] || {}).reject { |_, count| count.to_i.zero? }
+          { player_name: r['player_name'], games: r['games'].to_i, positions: positions, total: r['total'].to_i }
+        end
+        JSON.pretty_generate(data)
+      end
+
       def lineup(target_date, game_info, optimizer)
         JSON.pretty_generate({
           target_date: target_date.to_s,
