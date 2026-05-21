@@ -301,6 +301,16 @@ RSpec.describe Gamechanger::Formatters::Json do
       expect(result.first['positions']).to eq(['SS', 'P'])
     end
 
+    it 'emits pa from the row' do
+      rows = [{
+        'batter_name' => 'Slugger', 'games' => 2,
+        'total_ab' => 4, 'total_hits' => 2, 'total_walks' => 2, 'total_k' => 0,
+        'pa' => 7
+      }]
+      result = JSON.parse(fmt.hitting(rows))
+      expect(result.first['pa']).to eq(7)
+    end
+
     it 'emits positions as an empty array when missing or empty' do
       rows = [{
         'batter_name' => 'Bench', 'games' => 1, 'total_ab' => 1,

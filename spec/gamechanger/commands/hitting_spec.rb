@@ -69,6 +69,51 @@ RSpec.describe Gamechanger::Commands::Hitting do
       end
     end
 
+    context 'plate appearances column' do
+      let(:rows) do
+        [
+          { 'batter_name' => 'Slugger', 'games' => 2, 'total_ab' => 4, 'total_hits' => 2, 'total_walks' => 2, 'total_k' => 0, 'total_hbp' => 1 },
+          { 'batter_name' => 'Drifter', 'games' => 2, 'total_ab' => 3, 'total_hits' => 1, 'total_walks' => 0, 'total_k' => 1, 'total_hbp' => 0 }
+        ]
+      end
+
+      before { allow(storage).to receive(:season_batting_summary).and_return(rows) }
+
+      it 'derives pa per row as at_bats + walks + hbp' do
+        formatter = instance_spy(Gamechanger::Formatters::Table, hitting: '')
+        allow(command).to receive(:build_formatter).and_return(formatter)
+        command.call
+        expect(formatter).to have_received(:hitting) do |passed_rows|
+          slugger = passed_rows.find { |r| r['batter_name'] == 'Slugger' }
+          drifter = passed_rows.find { |r| r['batter_name'] == 'Drifter' }
+          expect(slugger['pa']).to eq(7)  # 4 + 2 + 1
+          expect(drifter['pa']).to eq(3)  # 3 + 0 + 0
+        end
+      end
+
+      it 'sorts by pa descending with --sort pa --desc' do
+        cmd = described_class.new(options: { format: 'table', sort: 'pa', desc: true }, shell: shell)
+        formatter = instance_spy(Gamechanger::Formatters::Table, hitting: '')
+        allow(cmd).to receive(:build_formatter).and_return(formatter)
+        cmd.call
+        expect(formatter).to have_received(:hitting) do |passed_rows|
+          expect(passed_rows.map { |r| r['batter_name'] }).to eq(%w[Slugger Drifter])
+        end
+      end
+
+      it 'defaults pa to at_bats + walks when total_hbp is missing from row (nil safety)' do
+        allow(storage).to receive(:season_batting_summary).and_return(
+          [{ 'batter_name' => 'Solo', 'games' => 1, 'total_ab' => 4, 'total_hits' => 1, 'total_walks' => 1, 'total_k' => 0 }]
+        )
+        formatter = instance_spy(Gamechanger::Formatters::Table, hitting: '')
+        allow(command).to receive(:build_formatter).and_return(formatter)
+        command.call
+        expect(formatter).to have_received(:hitting) do |passed_rows|
+          expect(passed_rows.first['pa']).to eq(5)
+        end
+      end
+    end
+
     context 'positions column' do
       let(:rows) { [{ 'batter_name' => 'Bob', 'games' => 1, 'total_ab' => 3, 'total_hits' => 1, 'total_walks' => 0, 'total_k' => 1 }] }
 

@@ -21,6 +21,7 @@ module Gamechanger
       HITTING_SORT_KEYS = {
         'name' => ->(r) { r['batter_name'] },
         'g'    => ->(r) { r['games'].to_i },
+        'pa'   => ->(r) { r['pa'].to_i },
         'ab'   => ->(r) { r['total_ab'].to_i },
         'h'    => ->(r) { r['total_hits'].to_i },
         'bb'   => ->(r) { r['total_walks'].to_i },
@@ -42,7 +43,10 @@ module Gamechanger
           exit 1
         end
         positions_map = storage.fielding_positions_most_recent_by_name
-        rows.each { |r| r['positions'] = positions_map[r['batter_name']] || [] }
+        rows.each do |r|
+          r['positions'] = positions_map[r['batter_name']] || []
+          r['pa']        = r['total_ab'].to_i + r['total_walks'].to_i + r['total_hbp'].to_i
+        end
         rows = apply_sort(rows, HITTING_SORT_KEYS)
         puts build_formatter.hitting(rows)
       end

@@ -67,6 +67,17 @@ RSpec.describe Gamechanger::Formatters::Markdown do
       expect(output).to include('Pos')
       expect(output).to include('Bench')
     end
+
+    it 'renders the PA column with value from the row' do
+      rows = [{
+        'batter_name' => 'Slugger', 'games' => 2,
+        'total_ab' => 4, 'total_hits' => 2, 'total_walks' => 2, 'total_k' => 0,
+        'pa' => 7, 'positions' => []
+      }]
+      output = fmt.hitting(rows)
+      expect(output).to include('PA')
+      expect(output).to match(/Slugger.*\| 7 /)
+    end
   end
 
   describe '#availability' do

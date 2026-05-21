@@ -335,6 +335,15 @@ RSpec.describe Gamechanger::Formatters::Table do
       expect(output).to include('Bench')
       expect(output).to include('Pos')
     end
+
+    it 'renders the PA column header and value from the row' do
+      rows = [{ 'batter_name' => 'Slugger', 'games' => 2,
+                'total_ab' => 4, 'total_hits' => 2, 'total_walks' => 2, 'total_k' => 0,
+                'pa' => 7, 'positions' => [] }]
+      output = fmt.hitting(rows)
+      expect(output).to include('PA')
+      expect(output).to match(/Slugger.*\b7\b/)
+    end
   end
 
   # ── batter_games ──────────────────────────────────────────────────────────
