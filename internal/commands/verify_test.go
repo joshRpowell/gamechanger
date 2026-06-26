@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,6 +36,9 @@ func TestHelperProcess(t *testing.T) {
 		os.Exit(0)
 	case "fail":
 		fmt.Fprintln(os.Stderr, "RuntimeError: simulated Ruby failure\n  from exe/gamechanger:1:in `<main>'")
+		os.Exit(1)
+	case "fail-stdout":
+		fmt.Fprintln(os.Stdout, stdout)
 		os.Exit(1)
 	case "timeout":
 		// Sleep longer than any reasonable test timeout. Context cancellation
@@ -132,6 +136,25 @@ func writeFixtureFile(t *testing.T, dir, name string) string {
 	return path
 }
 
+func writeSQLiteFixtureFile(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open sqlite fixture: %v", err)
+	}
+	defer db.Close()
+	_, err = db.Exec(`
+		CREATE TABLE games (id INTEGER PRIMARY KEY, game_id TEXT);
+		CREATE TABLE game_pitcher_stats (id INTEGER PRIMARY KEY, strikes_thrown INTEGER);
+		CREATE TABLE game_batter_stats (id INTEGER PRIMARY KEY, batter_name TEXT);
+	`)
+	if err != nil {
+		t.Fatalf("seed sqlite fixture: %v", err)
+	}
+	return path
+}
+
 // ─── Result rendering & parity verdicts ──────────────────────────────────────
 
 func TestVerify_ParityPass(t *testing.T) {
@@ -152,6 +175,57 @@ func TestVerify_ParityPass(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "parity-pass") {
 		t.Fatalf("human output missing status: %q", stdout)
+	}
+}
+
+func TestPrepareRubyFixtureStagesNonCacheDBAnchor(t *testing.T) {
+	fixtureDir := t.TempDir()
+	fixturePath := writeSQLiteFixtureFile(t, fixtureDir, "cache-anchor.db")
+	if err := os.WriteFile(filepath.Join(fixtureDir, "config.yml"), []byte("season: 2026\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	rubyDir, cleanup, err := prepareRubyFixture(fixturePath, fixtureDir)
+	if err != nil {
+		t.Fatalf("prepareRubyFixture: %v", err)
+	}
+	defer cleanup()
+
+	if rubyDir == fixtureDir {
+		t.Fatalf("expected staged temp dir for non-cache.db fixture")
+	}
+	if _, err := os.Stat(filepath.Join(rubyDir, "config.yml")); err != nil {
+		t.Fatalf("expected config.yml to be staged: %v", err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(rubyDir, "cache.db"))
+	if err != nil {
+		t.Fatalf("open staged cache: %v", err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version IN (1, 2, 3)`).Scan(&count); err != nil {
+		t.Fatalf("read staged migration metadata: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("staged migration metadata count = %d; want 3", count)
+	}
+}
+
+func TestPrepareRubyFixtureUsesCacheDBInPlace(t *testing.T) {
+	fixtureDir := t.TempDir()
+	fixturePath := filepath.Join(fixtureDir, "cache.db")
+	if err := os.WriteFile(fixturePath, []byte("db bytes"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	rubyDir, cleanup, err := prepareRubyFixture(fixturePath, fixtureDir)
+	if err != nil {
+		t.Fatalf("prepareRubyFixture: %v", err)
+	}
+	defer cleanup()
+
+	if rubyDir != fixtureDir {
+		t.Fatalf("ruby fixture dir = %q; want %q", rubyDir, fixtureDir)
 	}
 }
 
@@ -375,6 +449,23 @@ func TestVerify_RubyError(t *testing.T) {
 	}
 	if engineInvoked {
 		t.Fatalf("engine was invoked despite Ruby failure — phantom drift risk")
+	}
+}
+
+func TestVerify_RubyErrorFallsBackToStdoutSnippet(t *testing.T) {
+	gcHome := setupFakeHome(t)
+	fixture := writeFixtureFile(t, gcHome, "cache.db")
+
+	withRubyCmdFactory(t, helperCmd(t, "fail-stdout", "No player data cached. Run `gamechanger refresh` to sync."))
+
+	code, _, stderr := runVerifyCapture(t, "progress", &verifyOpts{
+		fixture: fixture, format: "human", rubyTimeout: 5 * time.Second,
+	})
+	if code != ExitRubyError {
+		t.Fatalf("got exit %d want %d", code, ExitRubyError)
+	}
+	if !strings.Contains(stderr, "No player data cached") {
+		t.Fatalf("error message missing Ruby stdout snippet: %q", stderr)
 	}
 }
 

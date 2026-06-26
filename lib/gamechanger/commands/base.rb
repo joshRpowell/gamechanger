@@ -95,7 +95,8 @@ module Gamechanger
         else
           game = storage.next_scheduled_game
           if game.nil?
-            shell.say 'No upcoming games in cache. Run `gamechanger refresh` to sync the schedule.', :yellow
+            shell.say 'No upcoming games in cache.', :yellow
+            shell.say 'First time here? Run `gamechanger demo` to see a sample brief, then `gamechanger setup` and `gamechanger refresh` to sync your team.', :yellow
             exit 1
           end
           [Date.parse(game['game_date']), game]

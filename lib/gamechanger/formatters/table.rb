@@ -277,7 +277,7 @@ module Gamechanger
         lines = ["", header, "  (based on last 7 days)", ""]
 
         if optimizer.ranked.empty? && optimizer.unranked.empty?
-          lines << "  No batting data in cache. Run `gamechanger pitches --refresh` to sync."
+          lines << "  No batting data in cache. Run `gamechanger refresh` to sync."
           lines << ""
           return lines.join("\n")
         end
@@ -315,13 +315,15 @@ module Gamechanger
       def brief(target_date, game_info, brief_obj)
         header = if game_info
           opponent  = game_info['opponent'] || '—'
-          home_away = game_info['home_away'] || '—'
+          home_away = game_info['home_away'].to_s.empty? ? '—' : game_info['home_away']
           "#{game_info['game_date']} vs #{opponent} (#{home_away})"
         else
           target_date.to_s
         end
 
-        lines = ["", "Pre-Game Brief: #{header}", ""]
+        lines = ["", "Pre-Game Brief: #{header}", "", "Action Plan:"]
+        brief_action_lines(brief_obj, target_date).each { |line| lines << "  - #{line}" }
+        lines << ""
 
         # ── Pitcher Plan ────────────────────────────────────────────────────
         unless brief_obj.pitcher_plan.empty?
@@ -443,7 +445,7 @@ module Gamechanger
       end
 
       def equity(rows)
-        return "No player data found. Run `gamechanger pitches --refresh` to sync." if rows.empty?
+        return "No player data found. Run `gamechanger refresh` to sync." if rows.empty?
 
         total = rows.first['total_games'].to_i
 
@@ -463,7 +465,7 @@ module Gamechanger
       end
 
       def progress(arcs)
-        return "No player data cached. Run `gc pitches --refresh` to sync." if arcs.empty?
+        return "No player data cached. Run `gamechanger refresh` to sync." if arcs.empty?
 
         t = Terminal::Table.new(
           headings: ['Player', 'Batting Arc', '↑↓', 'Bat Last 5', 'Pitching Arc', '↑↓', 'Pitch Last 5'],
@@ -534,6 +536,68 @@ module Gamechanger
         delta = arc.second_half_strike_pct - arc.first_half_strike_pct
         sign  = delta >= 0 ? '+' : '-'
         "#{sign}#{(delta.abs * 100).round} pts"
+      end
+
+      def brief_action_lines(brief_obj, target_date)
+        [
+          pitching_action(brief_obj.pitcher_plan, target_date),
+          lineup_action(brief_obj.lineup),
+          equity_action(brief_obj.equity_flags),
+          development_action(brief_obj.development_spotlights)
+        ].compact
+      end
+
+      def pitching_action(rows, target_date)
+        return 'Pitching: no workload data yet.' if rows.empty?
+
+        available = rows.select { |r| r['available'] }
+        if available.any?
+          preferred = available.reject { |r| r['high_load'] }.max_by { |r| r['remaining'].to_i } ||
+                      available.max_by { |r| r['remaining'].to_i }
+          remaining = preferred['remaining'].to_i.positive? ? "#{preferred['remaining']} pitches remaining" : 'use short'
+          load = preferred['high_load'] ? ', high recent load' : ''
+          return "Pitching: #{preferred['pitcher_name']} is the first safe arm (#{remaining}#{load})."
+        end
+
+        next_ready = rows.min_by { |r| r['avail_date'] || Date.new(9999, 12, 31) }
+        days = next_ready['avail_date'] ? (next_ready['avail_date'] - target_date).to_i.abs : '?'
+        "Pitching: no listed pitcher is available; #{next_ready['pitcher_name']} is next back in #{days}d."
+      end
+
+      def lineup_action(optimizer)
+        if optimizer.ranked.any?
+          names = optimizer.ranked.first(3).map(&:batter_name).join(', ')
+          "Lineup: start with #{names} based on 7-day OBP."
+        elsif optimizer.unranked.any?
+          "Lineup: no recent AB ranking; #{optimizer.unranked.length} batters need coach judgment."
+        else
+          'Lineup: no batting data yet.'
+        end
+      end
+
+      def equity_action(rows)
+        return nil if rows.empty?
+
+        row = rows.first
+        total = row['total_games'].to_i
+        batted = row['total_games_batted'].to_i
+        pct = total.positive? ? "#{(batted * 100.0 / total).round}%" : 'n/a'
+        more = rows.length > 1 ? " plus #{rows.length - 1} more" : ''
+        "Equity: get #{row['player_name']} an at-bat (#{batted}/#{total}, #{pct})#{more}."
+      end
+
+      def development_action(arcs)
+        return nil if arcs.empty?
+
+        arc = arcs.first
+        verb = arc.bat_trend == '↓' ? 'check in with' : 'reinforce'
+        detail = if arc.first_half_obp && arc.recent_obp
+          "OBP #{format_obp(arc.first_half_obp)} to #{format_obp(arc.recent_obp)} recently"
+        else
+          arc.bat_narrative
+        end
+        suffix = detail.to_s.empty? ? '' : " (#{detail})"
+        "Development: #{verb} #{arc.player_name}#{suffix}."
       end
 
       def trend_arrow(row)

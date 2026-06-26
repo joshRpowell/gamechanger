@@ -552,6 +552,29 @@ RSpec.describe Gamechanger::Formatters::Markdown do
       expect(output).to include('Danny')
     end
 
+    it 'leads with an action plan for game-day decisions' do
+      full_brief = instance_double(
+        Gamechanger::PreGameBrief,
+        pitcher_plan: [{
+          'pitcher_name' => 'Alice', 'seven_day_total' => '20',
+          'remaining' => 55, 'available' => true, 'high_load' => false,
+          'avail_date' => today
+        }],
+        lineup: instance_double(Gamechanger::LineupOptimizer, ranked: [slot], unranked: [unranked_slot]),
+        equity_flags: [{ 'player_name' => 'Danny', 'total_games' => '5', 'total_games_batted' => '2' }],
+        development_spotlights: [arc]
+      )
+
+      output = fmt.brief(today, nil, full_brief)
+
+      expect(output).to include('## Action Plan')
+      expect(output).to include('- Pitching: Alice is the first safe arm')
+      expect(output).to include('- Lineup: start with Bob')
+      expect(output).to include('- Equity: get Danny an at-bat')
+      expect(output).to include('- Development: reinforce Bob')
+      expect(output.index('## Action Plan')).to be < output.index('## Pitcher Plan')
+    end
+
     it 'renders development spotlights with OBP trend' do
       spotlight_brief = instance_double(
         Gamechanger::PreGameBrief,

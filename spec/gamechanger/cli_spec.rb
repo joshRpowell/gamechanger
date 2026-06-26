@@ -12,6 +12,25 @@ RSpec.describe Gamechanger::CLI do
     end
   end
 
+  describe '#demo' do
+    it 'prints an anonymized sample brief without setup' do
+      expect { described_class.start(['demo']) }
+        .to output(/Pre-Game Brief: 2026-07-16 vs Bayshore Buccaneers/).to_stdout
+    end
+
+    it 'supports the progress report' do
+      expect { described_class.start(['demo', '--report', 'progress']) }
+        .to output(/Batting Arc/).to_stdout
+    end
+  end
+
+  describe 'command help' do
+    it 'supports command --help for setup' do
+      expect { described_class.start(['setup', '--help']) }
+        .to output(/Usage:\n\s+\S+ setup/).to_stdout
+    end
+  end
+
   describe '#availability' do
     context 'when not configured (no credentials)' do
       it 'does NOT exit 4 — availability is cache-only' do
@@ -31,7 +50,7 @@ RSpec.describe Gamechanger::CLI do
           instance_double(Gamechanger::Storage, next_scheduled_game: nil, close: nil)
         )
         expect { described_class.start(['availability']) }
-          .to output(/gamechanger refresh/).to_stdout
+          .to output(/gamechanger demo.*gamechanger setup.*gamechanger refresh/m).to_stdout
           .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
       end
     end

@@ -11,6 +11,15 @@ module Gamechanger
   class CLI < Thor
     def self.exit_on_failure? = true
 
+    def self.start(given_args = ARGV, config = {})
+      args = given_args.dup
+      if args.length >= 2 && %w[-h --help].include?(args[1]) && commands.key?(args[0])
+        args = ['help', args[0], *args[2..]]
+      end
+
+      super(args, config)
+    end
+
     default_task :brief
 
     class_option :format, type: :string, default: 'table', enum: %w[table json markdown],
@@ -99,6 +108,13 @@ module Gamechanger
     option :date, type: :string, desc: 'Target game date YYYY-MM-DD (default: next scheduled game)'
     def brief
       Commands::Brief.new(options: options, shell: shell).call
+    end
+
+    desc 'demo', 'Show an anonymized sample report without setup or credentials'
+    option :report, type: :string, default: 'brief', enum: %w[brief progress],
+                    desc: 'Sample report to show'
+    def demo
+      Commands::Demo.new(options: options, shell: shell).call
     end
 
     desc 'version', 'Print version'

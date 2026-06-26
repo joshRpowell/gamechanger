@@ -34,13 +34,14 @@
 //
 // Ruby subprocess environment: os.Environ() minus a secrets denylist
 // (anything ending in _TOKEN / _SECRET / _KEY, plus explicit GC_TOKEN /
-// GAMECHANGER_TOKEN), then GAMECHANGER_HOME=<fixture dir> appended.
+// GAMECHANGER_TOKEN), then GAMECHANGER_HOME=<Ruby fixture dir> appended.
 
 package commands
 
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +54,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	_ "modernc.org/sqlite"
 
 	"github.com/joshrpowell/gamechanger-cli/internal/analytics/progressjson"
 	"github.com/joshrpowell/gamechanger-cli/internal/config"
@@ -196,12 +198,18 @@ func runVerify(ctx context.Context, stdout, stderr io.Writer, commandName string
 	}
 
 	// 4. Run Ruby (subprocess) — captures stdout, propagates stderr to caller.
-	rubyOut, rubyErr := runRuby(ctx, vo.rubyTimeout, commandName, fixtureDir)
+	rubyFixtureDir, cleanup, err := prepareRubyFixture(fixturePath, fixtureDir)
+	if err != nil {
+		return &parityExit{code: ExitFixtureMissing, msg: err.Error()}
+	}
+	defer cleanup()
+
+	rubyOut, rubyErr := runRuby(ctx, vo.rubyTimeout, commandName, rubyFixtureDir)
 	if rubyErr != nil {
 		return rubyErr // already wrapped in *parityExit
 	}
 
-	// 5. Run Go (in-process) — same fixture, same season.
+	// 5. Run Go (in-process) — same staged fixture, same season.
 	runner, ok := goRunners[commandName]
 	if !ok {
 		// Belt-and-suspenders — allowlist + runner map should always agree.
@@ -210,7 +218,7 @@ func runVerify(ctx context.Context, stdout, stderr io.Writer, commandName string
 			msg:  fmt.Sprintf("Go runner missing for allowlisted command %q", commandName),
 		}
 	}
-	goOut, err := runner(ctx, fixtureDir, cfg.Season)
+	goOut, err := runner(ctx, rubyFixtureDir, cfg.Season)
 	if err != nil {
 		return &parityExit{code: ExitGoParseError, msg: fmt.Sprintf("Go renderer failed: %v", err)}
 	}
@@ -353,6 +361,106 @@ func pathHasPrefix(path, prefix string) bool {
 	return strings.HasPrefix(path, cleanPrefix+string(filepath.Separator))
 }
 
+// prepareRubyFixture gives Ruby a GAMECHANGER_HOME that contains the cache
+// filename Storage expects (`cache.db`). The committed parity anchor is named
+// `cache-anchor.db` so Go can keep it immutable; Ruby has no fixture-path flag.
+func prepareRubyFixture(fixturePath, fixtureDir string) (string, func(), error) {
+	if filepath.Base(fixturePath) == "cache.db" {
+		return fixtureDir, func() {}, nil
+	}
+
+	tmpDir, err := os.MkdirTemp("", "gamechanger-ruby-fixture-*")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create ruby fixture dir: %v", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(tmpDir) }
+
+	src, err := os.ReadFile(fixturePath)
+	if err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("read fixture: %s", filepath.Base(fixturePath))
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "cache.db"), src, 0o600); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("stage ruby fixture: %v", err)
+	}
+	if err := seedRubyMigrationMetadata(filepath.Join(tmpDir, "cache.db")); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+
+	configPath := filepath.Join(fixtureDir, "config.yml")
+	if data, err := os.ReadFile(configPath); err == nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "config.yml"), data, 0o600); err != nil {
+			cleanup()
+			return "", func() {}, fmt.Errorf("stage ruby config: %v", err)
+		}
+	}
+
+	return tmpDir, cleanup, nil
+}
+
+func seedRubyMigrationMetadata(dbPath string) error {
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return fmt.Errorf("open staged ruby fixture: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			version    INTEGER PRIMARY KEY NOT NULL,
+			applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+		)`); err != nil {
+		return fmt.Errorf("create staged migration metadata: %v", err)
+	}
+
+	versions := []int{}
+	if tableExists(db, "games") && tableExists(db, "game_pitcher_stats") {
+		versions = append(versions, 1)
+	}
+	if columnExists(db, "game_pitcher_stats", "strikes_thrown") {
+		versions = append(versions, 2)
+	}
+	if tableExists(db, "game_batter_stats") {
+		versions = append(versions, 3)
+	}
+
+	for _, version := range versions {
+		if _, err := db.Exec(`INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)`, version); err != nil {
+			return fmt.Errorf("record staged migration %d: %v", version, err)
+		}
+	}
+	return nil
+}
+
+func tableExists(db *sql.DB, table string) bool {
+	var n int
+	err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&n)
+	return err == nil && n > 0
+}
+
+func columnExists(db *sql.DB, table, column string) bool {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			return false
+		}
+		if name == column {
+			return true
+		}
+	}
+	return false
+}
+
 // defaultRubyCmd builds the production Ruby invocation: bundle exec
 // exe/gamechanger <command> --format json. Argv form, no shell interpolation.
 // The env passed to the subprocess is the parent env minus secrets, plus
@@ -429,13 +537,17 @@ func runRuby(parentCtx context.Context, timeout time.Duration, command, fixtureD
 		}
 	}
 
-	// Ruby ran but exited nonzero — capture first 500 chars of stderr so the
+	// Ruby ran but exited nonzero — capture first 500 chars of stderr/stdout so the
 	// AI loop has something actionable. The engine is NOT invoked: passing
 	// partial Ruby stdout to parity.Compare would produce phantom drift the
 	// loop would try to "fix" by making Go match Ruby's panic state.
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
-		snippet := truncate(stderr.String(), 500)
+		snippet := strings.TrimSpace(stderr.String())
+		if snippet == "" {
+			snippet = strings.TrimSpace(stdout.String())
+		}
+		snippet = truncate(snippet, 500)
 		return nil, &parityExit{
 			code: ExitRubyError,
 			msg:  fmt.Sprintf("Ruby exited %d: %s", exitErr.ExitCode(), snippet),

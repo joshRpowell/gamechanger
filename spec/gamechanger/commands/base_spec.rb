@@ -191,10 +191,8 @@ RSpec.describe Gamechanger::Commands::Base do
       expect {
         command.resolve_target(nil, storage: storage)
       }.to raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
-      expect(shell).to have_received(:say).with(
-        'No upcoming games in cache. Run `gamechanger refresh` to sync the schedule.',
-        :yellow
-      )
+      expect(shell).to have_received(:say).with('No upcoming games in cache.', :yellow)
+      expect(shell).to have_received(:say).with(/gamechanger demo.*gamechanger setup.*gamechanger refresh/, :yellow)
     end
   end
 end

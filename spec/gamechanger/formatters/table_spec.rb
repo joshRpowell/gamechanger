@@ -525,6 +525,17 @@ RSpec.describe Gamechanger::Formatters::Table do
       expect(output).to include('Pre-Game Brief')
     end
 
+    it 'leads with an action plan for game-day decisions' do
+      output = fmt.brief(today, nil, brief_obj)
+
+      expect(output).to include('Action Plan:')
+      expect(output).to include('Pitching: Alice is the first safe arm')
+      expect(output).to include('Lineup: start with Bob')
+      expect(output).to include('Equity: get Danny an at-bat')
+      expect(output).to include('Development: reinforce Bob')
+      expect(output.index('Action Plan')).to be < output.index('Pitcher Plan')
+    end
+
     it 'includes pitcher plan table' do
       output = fmt.brief(today, nil, brief_obj)
       expect(output).to include('Alice')

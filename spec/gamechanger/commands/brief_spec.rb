@@ -32,7 +32,8 @@ RSpec.describe Gamechanger::Commands::Brief do
     allow(storage).to receive(:next_scheduled_game).and_return(nil)
 
     expect { command.call }.to raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
-    expect(shell).to have_received(:say).with(/No upcoming games.*gamechanger refresh/, :yellow)
+    expect(shell).to have_received(:say).with('No upcoming games in cache.', :yellow)
+    expect(shell).to have_received(:say).with(/gamechanger demo.*gamechanger setup.*gamechanger refresh/, :yellow)
   end
 
   it 'maps APIShapeError to stderr red+yellow and exits 3' do

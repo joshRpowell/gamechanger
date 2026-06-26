@@ -53,17 +53,28 @@ module Gamechanger
 
     def save(email:, password: nil, password_op_ref: nil, team_id: nil, team_slug: nil, season: nil)
       raise ConfigError, 'Email cannot be empty' if email.to_s.strip.empty?
-      if password.to_s.strip.empty? && password_op_ref.to_s.strip.empty?
+
+      existing = existing_config_data
+      if password.to_s.strip.empty? && password_op_ref.to_s.strip.empty? &&
+         existing['password'].to_s.strip.empty? && existing['password_op_ref'].to_s.strip.empty?
         raise ConfigError, 'Either password or password_op_ref must be provided'
       end
 
-      data = { 'email' => email.strip }
-      data['password']        = password.strip        unless password.to_s.strip.empty?
-      data['password_op_ref'] = password_op_ref.strip unless password_op_ref.to_s.strip.empty?
+      data = existing.dup
+      data['email'] = email.strip
+      if password.to_s.strip.empty?
+        unless password_op_ref.to_s.strip.empty?
+          data.delete('password')
+          data['password_op_ref'] = password_op_ref.strip
+        end
+      else
+        data['password'] = password.strip
+        data.delete('password_op_ref')
+      end
       data['team_id']   = team_id.to_s   if team_id
       data['team_slug'] = team_slug.to_s if team_slug
       data['season']    = season.to_i    if season
-      data['device_id'] = @device_id     # preserve existing device_id across saves
+      data['device_id'] = @device_id || existing['device_id'] || generate_device_id
 
       write_config(data)
       load_config
@@ -127,9 +138,18 @@ module Gamechanger
 
     private
 
+    def existing_config_data
+      return {} unless File.exist?(@config_file)
+
+      YAML.safe_load(File.read(@config_file), symbolize_names: false) || {}
+    rescue Psych::Exception => e
+      raise ConfigError, "Malformed config at #{@config_file}: #{e.message}"
+    end
+
     def load_config
       unless File.exist?(@config_file)
-        @email = @password = @password_op_ref = @team_id = @season = nil
+        @email = @password = @password_op_ref = @team_id = @team_slug = nil
+        @season = Time.now.year
         @resolved_op_password = nil
         return
       end

@@ -1,6 +1,6 @@
 # Gamechanger
 
-A command-line coaching analytics suite for youth baseball coaches. Connects to your [Gamechanger](https://web.gc.com) account and gives you a complete pre-game brief — pitcher availability, suggested lineup, equity flags, and development arcs — in one command.
+A command-line coaching analytics suite for developer-coaches working with youth baseball teams. Connects to your [Gamechanger](https://web.gc.com) account and gives you a complete pre-game brief — pitcher availability, suggested lineup, equity flags, and development arcs — in one command.
 
 ```bash
 gamechanger          # pre-game brief for your next scheduled game
@@ -12,6 +12,7 @@ gamechanger refresh  # pull latest data from Gamechanger
 - Ruby 3.2.0+
 - Bundler
 - A Gamechanger account with access to the team
+- Access to the email inbox that receives your Gamechanger verification code
 
 ## Installation
 
@@ -30,24 +31,42 @@ bundle exec gamechanger setup
 
 This will:
 1. Prompt for your Gamechanger email and password
-2. Authenticate with the Gamechanger API
-3. Detect your team ID automatically
-4. Save config to `~/.gamechanger/config.yml` (mode 0600)
+2. Send a 6-digit Gamechanger verification code to your email
+3. Prompt for the verification code and authenticate with the Gamechanger API
+4. Detect your team ID and team slug automatically
+5. Save config to `~/.gamechanger/config.yml` (mode 0600)
+
+If you use the 1Password CLI, you can keep the password out of the config file:
+
+```bash
+bundle exec gamechanger setup --email coach@example.com --op-ref op://Vault/Gamechanger/password
+```
 
 ### Manual config
 
-If setup can't auto-detect your team ID, edit `~/.gamechanger/config.yml` directly:
+If setup can't auto-detect your team, edit `~/.gamechanger/config.yml` directly:
 
 ```yaml
 email: your@email.com
 password: your_password
-team_id: "12345"    # find this in the URL when viewing your team on web.gc.com
+team_id: "team-uuid"        # internal team UUID
+team_slug: "team-url-slug"  # short ID from the web.gc.com team URL
+```
+
+Or use a 1Password reference instead of a plaintext password:
+
+```yaml
+email: your@email.com
+password_op_ref: op://Vault/Gamechanger/password
+team_id: "team-uuid"
+team_slug: "team-url-slug"
 ```
 
 ## Commands at a glance
 
 | Command | Description |
 |---------|-------------|
+| `demo` | Show anonymized sample reports without setup or credentials |
 | `setup` | Configure credentials and auto-detect your team |
 | `refresh` | Sync latest game data from Gamechanger |
 | `brief` | Pre-game intelligence brief — pitcher plan, lineup, equity, development |
@@ -61,6 +80,18 @@ team_id: "12345"    # find this in the URL when viewing your team on web.gc.com
 | `progress` | Player development arcs across the season |
 
 ## Usage
+
+### First-run demo
+
+See the core product without configuring a real Gamechanger account:
+
+```bash
+bundle exec gamechanger demo
+bundle exec gamechanger demo --report progress
+bundle exec gamechanger demo --format markdown
+```
+
+The demo uses an anonymized sample cache committed with the repo. It does not read your `~/.gamechanger` config, use credentials, or call the live Gamechanger API.
 
 ### Pre-game brief (default)
 
@@ -191,7 +222,7 @@ Final games are cached permanently. In-progress and today's games are re-fetched
 
 ```bash
 bundle exec rspec                                  # Run tests
-RUN_INTEGRATION_TESTS=1 bundle exec rspec          # Include live API tests
+go test ./...                                      # Run Go tests
 gem build gamechanger.gemspec                      # Verify gem builds
 ```
 

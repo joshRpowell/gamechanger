@@ -30,6 +30,10 @@ RSpec.describe Gamechanger::Config do
       expect(config.configured?).to be false
     end
 
+    it 'defaults season to the current year when config file does not exist' do
+      expect(config.season).to eq(Time.now.year)
+    end
+
     it 'returns true when email and password are set' do
       config.save(email: 'a@b.com', password: 'pass')
       expect(config.configured?).to be true
@@ -45,6 +49,50 @@ RSpec.describe Gamechanger::Config do
       File.write(config_file, YAML.dump('email' => 'a@b.com', 'password' => nil))
       cfg = described_class.new(config_file: config_file)
       expect(cfg.configured?).to be false
+    end
+  end
+
+  describe '#save' do
+    it 'preserves team fields and season when saving updated credentials' do
+      config.save(email: 'coach@example.com', password: 'old-pass',
+                  team_id: 'team-uuid', team_slug: 'team-slug', season: 2026)
+
+      config.save(email: 'coach@example.com', password: 'new-pass')
+
+      expect(config.team_id).to eq('team-uuid')
+      expect(config.team_slug).to eq('team-slug')
+      expect(config.season).to eq(2026)
+      expect(config.password).to eq('new-pass')
+    end
+
+    it 'allows team-only updates when credentials already exist' do
+      config.save(email: 'coach@example.com', password: 'pass')
+
+      config.save(email: 'coach@example.com', team_id: 'team-uuid', team_slug: 'team-slug')
+
+      expect(config.configured?).to be true
+      expect(config.team_id).to eq('team-uuid')
+      expect(config.team_slug).to eq('team-slug')
+      expect(config.password).to eq('pass')
+    end
+
+    it 'preserves the existing device_id across partial saves' do
+      config.save(email: 'coach@example.com', password: 'pass')
+      original_device_id = config.device_id
+
+      config.save(email: 'coach@example.com', password: 'new-pass')
+
+      expect(config.device_id).to eq(original_device_id)
+    end
+
+    it 'removes stale plaintext password when switching to a 1Password reference' do
+      config.save(email: 'coach@example.com', password: 'plain')
+
+      config.save(email: 'coach@example.com', password_op_ref: 'op://Vault/Item/password')
+
+      data = YAML.safe_load(File.read(config_file))
+      expect(data).not_to have_key('password')
+      expect(config.password_op_ref).to eq('op://Vault/Item/password')
     end
   end
 
