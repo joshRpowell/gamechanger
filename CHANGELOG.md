@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `Storage#find_game(game_id)` — returns a single game row (or `nil`) via the `games.game_id` UNIQUE index.
+- `Client` now reuses a single persistent keep-alive HTTP connection across all API requests instead of opening a fresh TCP + TLS connection per request. During `sync`, which issues one boxscore request per non-final game (typically 20-60 sequential calls to the same host), this pays the TLS handshake once rather than once per request. The connection is transparently re-opened if the server closes it (idle timeout); request/response semantics, retry behavior (429), rate-limit throttling, and error mapping are unchanged. A `Client#close` method is available to release the socket explicitly.
 
 ## [0.8.0] - 2026-05-21
 

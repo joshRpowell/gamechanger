@@ -234,6 +234,84 @@ RSpec.describe Gamechanger::Client do
     end
   end
 
+  describe 'persistent HTTP connection' do
+    let(:config) { config_double(cached_token: 'valid-token') }
+    subject(:client) { described_class.new(config: config) }
+
+    before do
+      stub_request(:get, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::TEAMS_PATH}")
+        .to_return(status: 200, body: JSON.generate([]), headers: { 'Content-Type' => 'application/json' })
+    end
+
+    it 'reuses a single started Net::HTTP connection across requests' do
+      first  = client.send(:http_connection)
+      second = client.send(:http_connection)
+      expect(second).to be(first)
+      expect(first).to be_started
+    end
+
+    it 'makes multiple sequential requests over the reused connection' do
+      client.teams
+      client.teams
+      expect(WebMock).to have_requested(:get, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::TEAMS_PATH}").twice
+    end
+
+    describe '#close' do
+      it 'finishes an open connection and clears it' do
+        conn = client.send(:http_connection)
+        expect(conn).to be_started
+        client.close
+        expect(client.instance_variable_get(:@http)).to be_nil
+      end
+
+      it 'is a no-op when no connection is open' do
+        expect { client.close }.not_to raise_error
+      end
+
+      it 'swallows IOError raised while finishing an already-dead socket' do
+        conn = client.send(:http_connection)
+        allow(conn).to receive(:finish).and_raise(IOError, 'already closed')
+        expect { client.close }.not_to raise_error
+        expect(client.instance_variable_get(:@http)).to be_nil
+      end
+    end
+
+    context 'when the persistent socket was closed server-side (idle timeout)' do
+      it 'reconnects once on EOFError and completes the request' do
+        stub_request(:get, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::TEAMS_PATH}")
+          .to_raise(EOFError.new('end of file reached'))
+          .then
+          .to_return(status: 200, body: JSON.generate([]), headers: { 'Content-Type' => 'application/json' })
+
+        expect { client.teams }.not_to raise_error
+        expect(WebMock).to have_requested(:get, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::TEAMS_PATH}").twice
+      end
+
+      it 'raises NetworkError if the reconnected request also fails' do
+        stub_request(:get, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::TEAMS_PATH}")
+          .to_raise(Errno::ECONNRESET)
+
+        expect { client.teams }.to raise_error(Gamechanger::NetworkError, /Connection error/)
+      end
+
+      it 'never resends a non-GET request (POST /auth must not double-send an OTP email)' do
+        auth_config = config_double(cached_refresh_token: 'refresh-jwt')
+        auth_client = described_class.new(config: auth_config)
+        allow(auth_config).to receive(:cache_tokens)
+        allow(auth_config).to receive(:clear_token)
+
+        stub_request(:post, "#{Gamechanger::Client::BASE_URL}#{Gamechanger::Client::AUTH_PATH}")
+          .to_raise(EOFError.new('end of file reached'))
+          .then
+          .to_return(status: 200, body: JSON.generate('access' => { 'data' => 'x' }),
+                     headers: { 'Content-Type' => 'application/json' })
+
+        expect { auth_client.authenticate }.to raise_error(Gamechanger::NetworkError, /Connection error/)
+        expect(WebMock).to have_requested(:post, "#{Gamechanger::Client::BASE_URL}/auth").once
+      end
+    end
+  end
+
   describe 'error handling edge cases' do
     let(:config) { config_double(cached_token: 'valid-token') }
     subject(:client) { described_class.new(config: config) }
