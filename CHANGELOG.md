@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- CLI startup ~28% faster for non-network commands: `net/http`/`openssl` (via `Client`/`Signer`) and `terminal-table` (via `Formatters::Table`) are now lazy-loaded with `Module#autoload` instead of eagerly required by `lib/gamechanger.rb`. Network commands (`setup`, `refresh`, `pitches`) and table rendering load them on first constant reference — no behavior change.
+
 ## [0.8.0] - 2026-05-21
 
 ### Added
