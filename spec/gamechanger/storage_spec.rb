@@ -39,6 +39,40 @@ RSpec.describe Gamechanger::Storage do
     end
   end
 
+  describe '#find_game' do
+    let(:game) do
+      {
+        game_id:   'game-001',
+        game_date: '2026-03-10',
+        opponent:  'Blue Jays',
+        home_away: 'home',
+        status:    'final'
+      }
+    end
+
+    it 'returns the matching game row by game_id' do
+      storage.upsert_game(game)
+      row = storage.find_game('game-001')
+      expect(row['game_id']).to eq('game-001')
+      expect(row['status']).to eq('final')
+    end
+
+    it 'returns nil when no game matches' do
+      storage.upsert_game(game)
+      expect(storage.find_game('nonexistent')).to be_nil
+    end
+
+    it 'returns nil when the games table is empty' do
+      expect(storage.find_game('game-001')).to be_nil
+    end
+
+    it 'returns only the requested game when multiple exist' do
+      storage.upsert_game(game)
+      storage.upsert_game(game.merge(game_id: 'game-002', opponent: 'Hawks'))
+      expect(storage.find_game('game-002')['opponent']).to eq('Hawks')
+    end
+  end
+
   describe '#upsert_pitcher_stats and #season_summary' do
     before do
       storage.upsert_game(game_id: 'g1', game_date: '2026-03-01', opponent: 'A', home_away: 'home', status: 'final')

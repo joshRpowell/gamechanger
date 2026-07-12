@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `Syncer#run` now resolves a game's cached status with an indexed point lookup (`Storage#find_game`, `SELECT ... WHERE game_id = ?`) instead of scanning the entire `games` table (`all_games`) and doing a linear `find` on every loop iteration. Sync behavior is unchanged (identical skip/force semantics); this removes quadratic DB work as seasons accumulate. Wall-clock impact on a live sync is marginal because that loop is network/rate-limit bound, but the isolated lookup pattern is ~23x faster at 60 games and ~350x faster at 1000 games in a synthetic in-memory benchmark.
+
+### Added
+- `Storage#find_game(game_id)` — returns a single game row (or `nil`) via the `games.game_id` UNIQUE index.
+
 ## [0.8.0] - 2026-05-21
 
 ### Added

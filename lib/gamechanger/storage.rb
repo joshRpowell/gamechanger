@@ -606,6 +606,15 @@ module Gamechanger
       db.execute('SELECT * FROM games ORDER BY game_date ASC')
     end
 
+    # Returns a single game row by game_id, or nil if not present.
+    # Uses the UNIQUE index on games.game_id for an indexed point lookup,
+    # avoiding a full-table scan when only one row is needed.
+    # @param game_id [String] Gamechanger game ID
+    # @return [Hash, nil] the game row (string-keyed) or nil
+    def find_game(game_id)
+      db.execute('SELECT * FROM games WHERE game_id = ?', [game_id]).first
+    end
+
     # Returns games that need re-fetching (in_progress or today's games).
     def stale_games
       today = Date.today.iso8601
