@@ -51,7 +51,7 @@ module Gamechanger
 
         @storage.upsert_game(parsed)
 
-        cached = @storage.all_games.find { |g| g['game_id'] == parsed[:game_id] }
+        cached = @storage.find_game(parsed[:game_id])
         next if cached && cached['status'] == 'final' && !force
 
         sleep Client::RATE_LIMIT_SLEEP

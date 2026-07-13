@@ -54,6 +54,14 @@ module Gamechanger
         $stdin.gets.to_s.strip
       end
       @previous_signature = nil
+      @http               = nil
+    end
+
+    # Close the persistent HTTP connection, if one is open. Safe to call when no
+    # connection exists. Callers that finish a batch of requests may invoke this
+    # to release the socket promptly rather than waiting for GC.
+    def close
+      reset_connection
     end
 
     # Returns a valid user access JWT, running whatever subset of the auth
@@ -210,27 +218,59 @@ module Gamechanger
     end
 
     def raw_request(method, path, body: nil, accept: ACCEPT_JSON, attempt: 1,
-                    extra_headers: {}, include_session_token: true)
-      http_opts = {
-        use_ssl:      true,
-        verify_mode:  OpenSSL::SSL::VERIFY_PEER,
-        open_timeout: 10,
-        read_timeout: 30
-      }
+                    extra_headers: {}, include_session_token: true, reconnect: true)
+      http = http_connection
+      req  = build_request(method, path, body, accept, extra_headers, include_session_token)
+      handle_response(http.request(req),
+                      path: path, method: method, body: body, accept: accept,
+                      attempt: attempt, extra_headers: extra_headers,
+                      include_session_token: include_session_token)
+    rescue EOFError, IOError, Errno::ECONNRESET, Errno::EPIPE => e
+      # The persistent connection was closed server-side (idle timeout) between
+      # requests. Net::HTTP raises when it writes to a dead reused socket. Drop
+      # the stale connection and, for idempotent GETs only, retry the request
+      # exactly once on a fresh one. Non-GET requests (POST /auth) are never
+      # resent — a mid-response failure could otherwise double-send (e.g. a
+      # duplicate OTP email) — so they map straight to NetworkError.
+      reset_connection
+      raise NetworkError, "Connection error: #{e.message}" unless reconnect && method == :get
 
-      Net::HTTP.start(@uri.host, @uri.port, **http_opts) do |http|
-        req = build_request(method, path, body, accept, extra_headers, include_session_token)
-        handle_response(http.request(req),
-                        path: path, method: method, body: body, accept: accept,
-                        attempt: attempt, extra_headers: extra_headers,
-                        include_session_token: include_session_token)
-      end
+      raw_request(method, path, body: body, accept: accept, attempt: attempt,
+                  extra_headers: extra_headers, include_session_token: include_session_token,
+                  reconnect: false)
     rescue Net::OpenTimeout, Net::ReadTimeout => e
       raise NetworkError, "Request timed out: #{e.message}"
     rescue Errno::ECONNREFUSED, Errno::EHOSTUNREACH, SocketError => e
       raise NetworkError, "Unable to connect to Gamechanger API: #{e.message}"
     rescue OpenSSL::SSL::SSLError => e
       raise NetworkError, "SSL error: #{e.message}"
+    end
+
+    # Lazily open (and memoize) a single keep-alive HTTP connection to the API
+    # host. Reused across every request for the life of the client so we pay the
+    # TCP + TLS handshake once instead of once per request. A dropped connection
+    # is transparently re-opened here on the next call (see reset_connection).
+    def http_connection
+      return @http if @http&.started?
+
+      http = Net::HTTP.new(@uri.host, @uri.port)
+      http.use_ssl          = true
+      http.verify_mode      = OpenSSL::SSL::VERIFY_PEER
+      http.open_timeout     = 10
+      http.read_timeout     = 30
+      http.keep_alive_timeout = 30
+      http.start
+      @http = http
+    end
+
+    # Finish and discard the memoized connection. Idempotent and safe to call
+    # even if the socket is already closed.
+    def reset_connection
+      @http.finish if @http&.started?
+    rescue IOError
+      # Socket already torn down — nothing to finish.
+    ensure
+      @http = nil
     end
 
     def build_request(method, path, body, accept, extra_headers, include_session_token)

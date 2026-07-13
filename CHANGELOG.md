@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - CLI startup ~28% faster for non-network commands: `net/http`/`openssl` (via `Client`/`Signer`) and `terminal-table` (via `Formatters::Table`) are now lazy-loaded with `Module#autoload` instead of eagerly required by `lib/gamechanger.rb`. Network commands (`setup`, `refresh`, `pitches`) and table rendering load them on first constant reference — no behavior change.
+- `Syncer#run` now resolves a game's cached status with an indexed point lookup (`Storage#find_game`, `SELECT ... WHERE game_id = ?`) instead of scanning the entire `games` table (`all_games`) and doing a linear `find` on every loop iteration. Sync behavior is unchanged (identical skip/force semantics); this removes quadratic DB work as seasons accumulate. Wall-clock impact on a live sync is marginal because that loop is network/rate-limit bound, but the isolated lookup pattern is ~23x faster at 60 games and ~350x faster at 1000 games in a synthetic in-memory benchmark.
+
+### Added
+- `Storage#find_game(game_id)` — returns a single game row (or `nil`) via the `games.game_id` UNIQUE index.
+- `Client` now reuses a single persistent keep-alive HTTP connection across all API requests instead of opening a fresh TCP + TLS connection per request. During `sync`, which issues one boxscore request per non-final game (typically 20-60 sequential calls to the same host), this pays the TLS handshake once rather than once per request. The connection is transparently re-opened if the server closes it (idle timeout); request/response semantics, retry behavior (429), rate-limit throttling, and error mapping are unchanged. A `Client#close` method is available to release the socket explicitly.
 
 ## [0.8.0] - 2026-05-21
 
