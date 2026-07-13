@@ -2,8 +2,6 @@
 
 require_relative 'gamechanger/version'
 require_relative 'gamechanger/config'
-require_relative 'gamechanger/signer'
-require_relative 'gamechanger/client'
 require_relative 'gamechanger/storage'
 require_relative 'gamechanger/demo_fixture'
 require_relative 'gamechanger/boxscore_parser'
@@ -15,7 +13,6 @@ require_relative 'gamechanger/development_arc'
 require_relative 'gamechanger/pre_game_brief'
 require_relative 'gamechanger/sorting'
 require_relative 'gamechanger/syncer'
-require_relative 'gamechanger/formatters/table'
 require_relative 'gamechanger/formatters/json'
 require_relative 'gamechanger/formatters/markdown'
 require_relative 'gamechanger/commands/base'
@@ -34,6 +31,23 @@ require_relative 'gamechanger/commands/demo'
 require_relative 'gamechanger/cli'
 
 module Gamechanger
+  # Lazy-load the network + crypto stack. `net/http` (~170ms first load) and
+  # `openssl` are pulled in by Client/Signer, but the majority of commands
+  # (version, --help, and all read-only cache reads) never touch the network.
+  # autoload keeps `Gamechanger::Client` / `Gamechanger::Signer` resolvable from
+  # anywhere (including specs that `describe Gamechanger::Client`) while paying
+  # the require cost only when a network command actually references them.
+  # Syncer stays eagerly required: it has no heavy requires, references Client
+  # only at call time, and defines the lightweight SyncResult struct that specs
+  # reference directly.
+  autoload :Signer, File.expand_path('gamechanger/signer', __dir__)
+  autoload :Client, File.expand_path('gamechanger/client', __dir__)
+
+  module Formatters
+    # terminal-table (~87ms) is only needed when table output is rendered.
+    autoload :Table, File.expand_path('gamechanger/formatters/table', __dir__)
+  end
+
   class Error         < StandardError; end
   class AuthError     < Error; end
   class NetworkError  < Error; end

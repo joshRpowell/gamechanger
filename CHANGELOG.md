@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- CLI startup ~28% faster for non-network commands: `net/http`/`openssl` (via `Client`/`Signer`) and `terminal-table` (via `Formatters::Table`) are now lazy-loaded with `Module#autoload` instead of eagerly required by `lib/gamechanger.rb`. Network commands (`setup`, `refresh`, `pitches`) and table rendering load them on first constant reference — no behavior change.
 - `Syncer#run` now resolves a game's cached status with an indexed point lookup (`Storage#find_game`, `SELECT ... WHERE game_id = ?`) instead of scanning the entire `games` table (`all_games`) and doing a linear `find` on every loop iteration. Sync behavior is unchanged (identical skip/force semantics); this removes quadratic DB work as seasons accumulate. Wall-clock impact on a live sync is marginal because that loop is network/rate-limit bound, but the isolated lookup pattern is ~23x faster at 60 games and ~350x faster at 1000 games in a synthetic in-memory benchmark.
 
 ### Added
