@@ -133,8 +133,11 @@ module Gamechanger
 
     # Pick a pitcher for a role, checking they can absorb target_pitches within daily max.
     def pick_pitcher(eligible, game_date, parsed_date, target_pitches, exclude:)
-      # NOTE: this re-check is load-bearing — it must observe state mutated by
-      # a preceding assign! (e.g. the starter's same-day pitch count).
+      # NOTE: this re-check is load-bearing — eligible_pitchers screens at
+      # min_pitches = 1, while this scan screens at the role's real target
+      # (e.g. 45 for a starter, 30 for a reliever), and it must observe state
+      # mutated by assignments in earlier games. Do not collapse it into the
+      # eligibility pass.
       candidate = eligible.reject { |n| exclude.include?(n) }
                           .find { |n| can_pitch?(n, game_date, parsed_date, target_pitches) }
       return [nil, nil] unless candidate
