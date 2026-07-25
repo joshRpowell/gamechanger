@@ -2,7 +2,12 @@
 
 module Gamechanger
   module Commands
-    # `gamechanger refresh` — force re-sync of latest game data.
+    # `gamechanger refresh` — re-sync the latest game data.
+    #
+    # Non-final games are always re-fetched. Games already cached as final are
+    # skipped, since their boxscores are immutable and each one costs an HTTP
+    # round-trip plus a rate-limit sleep. Pass --force to re-download them anyway
+    # (use it if the cache looks wrong).
     #
     # Output respects --format: 'human' (default) prints a green count line,
     # 'json' prints a parseable JSON object for piping into other tools.
@@ -12,7 +17,7 @@ module Gamechanger
           config = load_config!
           with_storage(season: config.season) do |storage|
             shell.say 'Syncing games from Gamechanger...', :cyan
-            result = Syncer.new(config, storage).run(force: true)
+            result = Syncer.new(config, storage).run(force: true, refetch_final: options[:force] || false)
             if options[:format] == 'json'
               require 'json' # opt-in output format; keep json off the startup path
               puts JSON.generate({ games: result.games, outings: result.outings, at_bats: result.at_bats })

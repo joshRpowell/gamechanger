@@ -10,6 +10,7 @@ module Gamechanger
   #
   # Usage:
   #   Syncer.new(config, storage).run(force: true)
+  #   Syncer.new(config, storage).run(force: true, refetch_final: true)
   class Syncer
     def initialize(config, storage)
       @config  = config
@@ -17,12 +18,22 @@ module Gamechanger
     end
 
     # Sync all past games and their pitcher/batter stats into storage.
-    # @param force [Boolean] re-fetch games even if already cached as final
+    #
+    # The two flags are deliberately separate because they invalidate different
+    # things. A final game's boxscore is immutable, so re-downloading it costs an
+    # HTTP round-trip plus a Client::RATE_LIMIT_SLEEP for zero new data; only
+    # non-final games actually need re-fetching on a routine sync.
+    #
+    # @param force [Boolean] drop cached data for non-final games first, so their
+    #   rows are re-fetched from the API on this run
+    # @param refetch_final [Boolean] also re-download boxscores for games already
+    #   cached as final. Escape hatch for a corrupted or partially-parsed cache;
+    #   costs one request + one rate-limit sleep per final game.
     # @raise [ConfigError]   if team_id or team_slug is not configured
     # @raise [AuthError]     on invalid credentials
     # @raise [NetworkError]  on connection failures or HTTP errors
     # @raise [APIShapeError] if the API response shape is unexpected
-    def run(force: false)
+    def run(force: false, refetch_final: false)
       @storage.clear_non_final if force
 
       team_id   = @config.team_id
@@ -52,7 +63,7 @@ module Gamechanger
         @storage.upsert_game(parsed)
 
         cached = @storage.find_game(parsed[:game_id])
-        next if cached && cached['status'] == 'final' && !force
+        next if !refetch_final && already_synced_final?(cached)
 
         sleep Client::RATE_LIMIT_SLEEP
         begin
@@ -86,6 +97,17 @@ module Gamechanger
     end
 
     private
+
+    # A game is safe to skip only if it is cached as final *and* its boxscore was
+    # actually parsed into stats. Status alone is not enough: the schedule feed can
+    # report a game as completed before its boxscore exists, in which case we upsert
+    # a 'final' row and the 404 branch below leaves it statless. Skipping on status
+    # alone would strand those games with no stats forever.
+    def already_synced_final?(cached)
+      return false if cached.nil?
+
+      cached['status'] == 'final' && @storage.pitcher_stats?(cached['game_id'])
+    end
 
     # Confirmed from /teams/{uuid}/schedule?fetch_place_details=true response.
     # Returns a bare array of {event:, pregame_data:} objects (practices and games mixed).

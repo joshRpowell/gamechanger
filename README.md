@@ -105,7 +105,8 @@ bundle exec gamechanger brief --format markdown | pbcopy   # copy to clipboard f
 ### Sync data
 
 ```bash
-bundle exec gamechanger refresh          # sync all games
+bundle exec gamechanger refresh          # sync new + in-progress games (final games are already cached)
+bundle exec gamechanger refresh --force   # also re-download already-final games (slow; only if the cache looks wrong)
 bundle exec gamechanger pitches          # show pitcher workload from cache (no network)
 bundle exec gamechanger pitches --refresh           # sync (re-fetching in-progress games) then show
 bundle exec gamechanger pitches --sort era          # ranked by ERA ascending (best first)
