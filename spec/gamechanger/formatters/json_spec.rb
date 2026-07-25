@@ -572,4 +572,29 @@ RSpec.describe Gamechanger::Formatters::Json do
       expect(result.first['positions']).to eq('SS' => 1)
     end
   end
+  # PERF: `available` is derived from available_date; nil last_outing must stay
+  # unconditionally available (matching PitchRules#available_on?).
+  describe '#availability nil last_outing semantics' do
+    let(:rows) do
+      [{ 'pitcher_name' => 'Pitcher One', 'last_outing' => nil,
+         'last_pitches' => '0', 'seven_day_total' => '0' }]
+    end
+
+    it 'marks a never-pitched pitcher available for a past target date' do
+      result = JSON.parse(fmt.availability(today - 5, nil, rows, rules))
+      expect(result['pitchers'].first['available']).to be true
+    end
+
+    it 'marks a never-pitched pitcher available for a future target date' do
+      result = JSON.parse(fmt.availability(today + 5, nil, rows, rules))
+      expect(result['pitchers'].first['available']).to be true
+    end
+
+    it 'marks a rested-out pitcher unavailable' do
+      rested = [{ 'pitcher_name' => 'Pitcher Two', 'last_outing' => today.to_s,
+                  'last_pitches' => '70', 'seven_day_total' => '70' }]
+      result = JSON.parse(fmt.availability(today + 1, nil, rested, rules))
+      expect(result['pitchers'].first['available']).to be false
+    end
+  end
 end

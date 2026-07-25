@@ -30,9 +30,10 @@ module Gamechanger
     def pitcher_plan
       @pitcher_plan ||= @availability_rows.map do |r|
         last_pitches = r['last_pitches'].to_i
-        avail        = @rules.available_on?(@target_date, r['last_outing'], last_pitches)
         remaining    = @rules.pitches_remaining(last_pitches)
         avail_date   = r['last_outing'] ? @rules.available_date(r['last_outing'], last_pitches) : nil
+        # Derived from avail_date — nil last_outing means "always available".
+        avail        = avail_date.nil? || @target_date >= avail_date
         seven_day    = r['seven_day_total'].to_i
 
         r.merge(

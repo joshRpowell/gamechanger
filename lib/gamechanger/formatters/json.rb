@@ -41,8 +41,8 @@ module Gamechanger
           {
             target_date: next_game_date.to_s,
             pitchers: projections.map do |proj|
-              avail      = rules.available_on?(next_game_date, proj.last_outing, proj.last_pitches)
               avail_date = rules.available_date(proj.last_outing, proj.last_pitches)
+              avail      = proj.last_outing.nil? || next_game_date >= avail_date
               {
                 pitcher_name:       proj.pitcher_name,
                 weekend_total:      proj.weekend_total,
@@ -273,8 +273,8 @@ module Gamechanger
       def availability(target_date, game_info, rows, rules)
         pitchers = rows.map do |row|
           last_pitches = row['last_pitches'].to_i
-          avail        = rules.available_on?(target_date, row['last_outing'], last_pitches)
           avail_date   = rules.available_date(row['last_outing'], last_pitches)
+          avail        = row['last_outing'].nil? || target_date >= avail_date
           {
             pitcher_name:        row['pitcher_name'],
             last_outing_date:    row['last_outing'],

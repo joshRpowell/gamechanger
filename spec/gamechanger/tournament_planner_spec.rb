@@ -261,4 +261,59 @@ RSpec.describe Gamechanger::TournamentPlanner do
       expect(planner.assignments.first.opponent).to eq('Eagles')
     end
   end
+  # PERF: game dates are parsed once per game and threaded into can_pitch?,
+  # instead of once per (game x pitcher) eligibility check.
+  describe 'date parsing (perf)' do
+    let(:rows) { (1..8).map { |i| row("Pitcher #{i}", last_outing: '2026-03-18', last_pitches: 40) } }
+    let(:games) do
+      [game('2026-03-21', opponent: 'Eagles'), game('2026-03-21', opponent: 'Tigers'),
+       game('2026-03-22', opponent: 'Hawks')]
+    end
+
+    subject(:planner) { described_class.new(games: games, rows: rows, rules: rules) }
+
+    it 'parses each distinct date string at most once across the whole plan' do
+      allow(Date).to receive(:parse).and_call_original
+      planner.assignments
+      # Two distinct game dates plus one distinct last_outing date.
+      expect(Date).to have_received(:parse).at_most(3).times
+    end
+
+    it 'still honours rest requirements after the hoist' do
+      # 40 pitches on 3/18 -> 1 rest day -> available 3/20, so all 3 games are open.
+      expect(planner.assignments.map(&:starter_name).compact.length).to eq(3)
+    end
+
+    it 'blocks pitchers whose rest window has not elapsed' do
+      heavy = described_class.new(
+        games: [game('2026-03-21')],
+        rows:  [row('Pitcher One', last_outing: '2026-03-20', last_pitches: 70)],
+        rules: rules
+      )
+      expect(heavy.assignments.first.starter_name).to be_nil
+    end
+
+    it 'sees state mutated by earlier assignments on the same day' do
+      # Game 2 is the same calendar day: everyone used in game 1 is now resting,
+      # so the pool must be disjoint.
+      used_first  = [planner.assignments[0].starter_name, planner.assignments[0].reliever_name]
+      used_second = [planner.assignments[1].starter_name, planner.assignments[1].reliever_name]
+      expect(used_first.compact.length).to eq(2)
+      expect(used_second.compact.length).to eq(2)
+      expect(used_first & used_second).to be_empty
+    end
+
+    it 'returns no reliever when only one pitcher is eligible' do
+      solo = described_class.new(
+        games: [game('2026-03-21')],
+        rows:  [row('Pitcher One')],
+        rules: rules
+      )
+      a = solo.assignments.first
+      expect(a.starter_name).to eq('Pitcher One')
+      expect(a.starter_pitches).to eq(45)
+      expect(a.reliever_name).to be_nil
+      expect(a.reliever_pitches).to be_nil
+    end
+  end
 end

@@ -85,10 +85,15 @@ module Gamechanger
         game_date = normalize_date(game)
         opponent  = game['opponent'] || game[:opponent]
 
-        eligible = eligible_pitchers(game_date)
+        # Parsed once per game and threaded through the eligibility predicates —
+        # can_pitch? runs O(games × pitchers) times per plan.
+        parsed_date = @rules.parse_date(game_date)
 
-        starter_name, starter_pitches = pick_pitcher(eligible, game_date, STARTER_PITCHES, exclude: [])
-        reliever_name, reliever_pitches = pick_pitcher(eligible, game_date, RELIEVER_PITCHES, exclude: [starter_name].compact)
+        eligible = eligible_pitchers(game_date, parsed_date)
+
+        starter_name, starter_pitches = pick_pitcher(eligible, game_date, parsed_date, STARTER_PITCHES, exclude: [])
+        reliever_name, reliever_pitches = pick_pitcher(eligible, game_date, parsed_date, RELIEVER_PITCHES,
+                                                       exclude: [starter_name].compact)
 
         assign!(starter_name, game_date, starter_pitches)  if starter_name
         assign!(reliever_name, game_date, reliever_pitches) if reliever_name
@@ -109,9 +114,9 @@ module Gamechanger
 
     # Build the eligible pitcher list for a game, sorted by weekend_total ASC.
     # Applies ace promotion: ace goes first if eligible and not yet used as starter.
-    def eligible_pitchers(game_date)
+    def eligible_pitchers(game_date, parsed_date)
       list = @state.reject { |name, _| @skip.include?(name.downcase) }
-                   .select { |name, s| can_pitch?(name, game_date, 1) }
+                   .select { |name, _| can_pitch?(name, game_date, parsed_date, 1) }
                    .sort_by { |_, s| s[:weekend_total] }
                    .map { |name, _| name }
 
@@ -127,9 +132,11 @@ module Gamechanger
     end
 
     # Pick a pitcher for a role, checking they can absorb target_pitches within daily max.
-    def pick_pitcher(eligible, game_date, target_pitches, exclude:)
+    def pick_pitcher(eligible, game_date, parsed_date, target_pitches, exclude:)
+      # NOTE: this re-check is load-bearing — it must observe state mutated by
+      # a preceding assign! (e.g. the starter's same-day pitch count).
       candidate = eligible.reject { |n| exclude.include?(n) }
-                          .find { |n| can_pitch?(n, game_date, target_pitches) }
+                          .find { |n| can_pitch?(n, game_date, parsed_date, target_pitches) }
       return [nil, nil] unless candidate
 
       actual_pitches = actual_pitches_for(candidate, game_date, target_pitches)
@@ -137,10 +144,10 @@ module Gamechanger
     end
 
     # Whether pitcher can absorb at least `min_pitches` on game_date given current state.
-    def can_pitch?(name, game_date, min_pitches)
+    def can_pitch?(name, game_date, parsed_date, min_pitches)
       s = @state[name]
       return false unless s
-      return false unless @rules.available_on?(Date.parse(game_date), s[:last_outing], s[:last_pitches])
+      return false unless @rules.available_on?(parsed_date, s[:last_outing], s[:last_pitches])
 
       remaining_daily = @rules.daily_max - s[:daily_total][game_date]
       remaining_daily >= min_pitches

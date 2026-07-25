@@ -14,16 +14,31 @@ module Gamechanger
     def initialize(daily_max: DEFAULT_DAILY_MAX, rest_thresholds: DEFAULT_REST_THRESHOLDS)
       @daily_max       = daily_max
       @rest_thresholds = rest_thresholds
+      @parsed_dates    = {}
     end
 
     def rest_days_required(pitches)
       @rest_thresholds.find { |min, _| pitches >= min }&.last || 0
     end
 
+    # Memoized Date.parse — the heuristic parser is expensive and the same
+    # handful of date strings are parsed repeatedly on hot paths (tournament
+    # simulation, availability tables).
+    #
+    # @param value [String, Date, nil]
+    # @return [Date, nil] nil only when value is nil
+    def parse_date(value)
+      return nil if value.nil?
+      return value if value.instance_of?(Date)
+
+      key = value.to_s
+      @parsed_dates[key] ||= Date.parse(key)
+    end
+
     def available_date(last_outing_date, pitches)
       return Date.today if last_outing_date.nil?
 
-      Date.parse(last_outing_date.to_s) + rest_days_required(pitches) + 1
+      parse_date(last_outing_date) + rest_days_required(pitches) + 1
     end
 
     def available_on?(target_date, last_outing_date, pitches)
