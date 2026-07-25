@@ -70,7 +70,7 @@ team_slug: "team-url-slug"
 | `setup` | Configure credentials and auto-detect your team |
 | `refresh` | Sync latest game data from Gamechanger |
 | `brief` | Pre-game intelligence brief — pitcher plan, lineup, equity, development |
-| `pitches` | Pitcher workload summary for the season |
+| `pitches` | Pitcher workload summary for the season (reads the cache; `--refresh` syncs first) |
 | `availability` | Pitcher availability and rest status for the next game |
 | `plan` | Tournament pitcher deployment plan |
 | `hitting` | Season batting stats |
@@ -106,8 +106,8 @@ bundle exec gamechanger brief --format markdown | pbcopy   # copy to clipboard f
 
 ```bash
 bundle exec gamechanger refresh          # sync all games
-bundle exec gamechanger pitches          # sync and show pitcher workload
-bundle exec gamechanger pitches --refresh           # force re-fetch of in-progress games
+bundle exec gamechanger pitches          # show pitcher workload from cache (no network)
+bundle exec gamechanger pitches --refresh           # sync (re-fetching in-progress games) then show
 bundle exec gamechanger pitches --sort era          # ranked by ERA ascending (best first)
 bundle exec gamechanger pitches --sort ip_share --desc  # who shouldered the load
 bundle exec gamechanger pitches --advanced          # add BB/9, BAA, P/IP columns

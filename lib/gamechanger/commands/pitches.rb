@@ -4,15 +4,22 @@ module Gamechanger
   module Commands
     # `gamechanger pitches` — pitcher workload summary for the season.
     # Supports filtering to a single pitcher, a single game by date, or showing
-    # the season-wide summary. Syncs from the API on every invocation.
+    # the season-wide summary.
+    #
+    # Reads from the local cache only. Pass `--refresh` to sync from the API
+    # first — that network round trip (plus the syncer's per-game rate-limit
+    # sleep) is opt-in, matching every sibling read command (hitting, fielding,
+    # equity, availability, brief), which are all cache-only.
     class Pitches < Base
       def call
         run_command do
           config = load_config!
           with_storage(season: config.season) do |storage|
-            shell.say 'Syncing games from Gamechanger...', :cyan if $stdout.tty?
-            Syncer.new(config, storage).run(force: options[:refresh])
-            shell.say 'Done.', :green if $stdout.tty?
+            if options[:refresh]
+              sync!(config, storage)
+            else
+              warn_if_stale(storage)
+            end
 
             formatter = build_formatter
 
@@ -28,6 +35,24 @@ module Gamechanger
       end
 
       private
+
+      # Opt-in sync path (`--refresh`): re-fetch non-final games, then display.
+      def sync!(config, storage)
+        shell.say 'Syncing games from Gamechanger...', :cyan if $stdout.tty?
+        Syncer.new(config, storage).run(force: true)
+        shell.say 'Done.', :green if $stdout.tty?
+      end
+
+      # Cache-only path: tell an interactive user when the cache holds games
+      # that are in progress or scheduled for today, since those rows can move.
+      # Suppressed for non-TTY output so piped/JSON consumers stay clean.
+      def warn_if_stale(storage)
+        return unless $stdout.tty?
+        return if storage.stale_games.empty?
+
+        shell.say "Cached data may be stale (in-progress or today's games). " \
+                  'Run `gamechanger pitches --refresh` to sync.', :yellow
+      end
 
       SEASON_SORT_KEYS = {
         'name'     => ->(r) { r['pitcher_name'] },

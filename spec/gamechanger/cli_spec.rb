@@ -655,35 +655,35 @@ RSpec.describe Gamechanger::CLI do
 
     it 'exits 2 on AuthError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::AuthError, 'expired')
-      expect { described_class.start(['pitches']) }
+      expect { described_class.start(%w[pitches --refresh]) }
         .to output(/Authentication error/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(2) }
     end
 
     it 'exits 3 on NetworkError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::NetworkError, 'timeout')
-      expect { described_class.start(['pitches']) }
+      expect { described_class.start(%w[pitches --refresh]) }
         .to output(/Network error/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(3) }
     end
 
     it 'exits 4 on ConfigError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::ConfigError, 'bad config')
-      expect { described_class.start(['pitches']) }
+      expect { described_class.start(%w[pitches --refresh]) }
         .to output(/Configuration error/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(4) }
     end
 
     it 'exits 3 on APIShapeError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::APIShapeError, 'changed')
-      expect { described_class.start(['pitches']) }
+      expect { described_class.start(%w[pitches --refresh]) }
         .to output(/unexpected format/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(3) }
     end
 
     it 'exits 1 on StorageError' do
       allow(syncer_double).to receive(:run).and_raise(Gamechanger::StorageError, 'db error')
-      expect { described_class.start(['pitches']) }
+      expect { described_class.start(%w[pitches --refresh]) }
         .to output(/Cache read failed/).to_stderr
         .and raise_error(SystemExit) { |e| expect(e.status).to eq(1) }
     end
