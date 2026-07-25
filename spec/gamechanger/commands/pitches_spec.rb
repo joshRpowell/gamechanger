@@ -244,6 +244,84 @@ RSpec.describe Gamechanger::Commands::Pitches do
     end
   end
 
+  # PERF: `pitches` used to sync on every invocation, paying an HTTP round trip
+  # plus the syncer's 0.5s-per-non-final-game rate-limit sleep before printing
+  # an otherwise cached table. Syncing is now opt-in via --refresh.
+  describe 'sync behaviour' do
+    let(:formatter) { instance_spy(Gamechanger::Formatters::Table, season_summary: '') }
+
+    before do
+      allow(storage).to receive(:season_summary).and_return([])
+      allow(storage).to receive(:stale_games).and_return([])
+    end
+
+    it 'does not sync by default (cache-only read)' do
+      cmd = described_class.new(options: { format: 'table' }, shell: shell)
+      allow(cmd).to receive(:build_formatter).and_return(formatter)
+
+      cmd.call
+
+      expect(Gamechanger::Syncer).not_to have_received(:new)
+      expect(syncer).not_to have_received(:run)
+      expect(formatter).to have_received(:season_summary)
+    end
+
+    it 'syncs with force: true before displaying when --refresh is passed' do
+      cmd = described_class.new(options: { format: 'table', refresh: true }, shell: shell)
+      allow(cmd).to receive(:build_formatter).and_return(formatter)
+
+      cmd.call
+
+      expect(Gamechanger::Syncer).to have_received(:new).with(config, storage)
+      expect(syncer).to have_received(:run).with(force: true)
+      expect(formatter).to have_received(:season_summary)
+    end
+
+    it 'announces the sync on a TTY when --refresh is passed' do
+      allow($stdout).to receive(:tty?).and_return(true)
+      cmd = described_class.new(options: { format: 'table', refresh: true }, shell: shell)
+      allow(cmd).to receive(:build_formatter).and_return(formatter)
+
+      cmd.call
+
+      expect(shell).to have_received(:say).with('Syncing games from Gamechanger...', :cyan)
+      expect(shell).to have_received(:say).with('Done.', :green)
+    end
+
+    it 'warns on a TTY when the cache holds in-progress or same-day games' do
+      allow($stdout).to receive(:tty?).and_return(true)
+      allow(storage).to receive(:stale_games).and_return([{ 'game_id' => 'g1' }])
+      cmd = described_class.new(options: { format: 'table' }, shell: shell)
+      allow(cmd).to receive(:build_formatter).and_return(formatter)
+
+      cmd.call
+
+      expect(shell).to have_received(:say).with(/Cached data may be stale/, :yellow)
+      expect(syncer).not_to have_received(:run)
+    end
+
+    it 'does not warn on a TTY when no cached games are stale' do
+      allow($stdout).to receive(:tty?).and_return(true)
+      cmd = described_class.new(options: { format: 'table' }, shell: shell)
+      allow(cmd).to receive(:build_formatter).and_return(formatter)
+
+      cmd.call
+
+      expect(shell).not_to have_received(:say).with(/Cached data may be stale/, :yellow)
+    end
+
+    it 'skips the staleness check entirely when output is not a TTY' do
+      allow($stdout).to receive(:tty?).and_return(false)
+      cmd = described_class.new(options: { format: 'table' }, shell: shell)
+      allow(cmd).to receive(:build_formatter).and_return(formatter)
+
+      cmd.call
+
+      expect(storage).not_to have_received(:stale_games)
+      expect(shell).not_to have_received(:say).with(/Cached data may be stale/, :yellow)
+    end
+  end
+
   describe '#call with --game' do
     it 'rejects malformed date strings to stdout and exits 1' do
       cmd = described_class.new(options: { game: 'bad', game_number: 1 }, shell: shell)
