@@ -37,4 +37,52 @@ RSpec.describe 'lazy loading of the network stack' do
     RUBY
     expect(out).to eq("true\nauthenticate\nseason_summary\ntrue\n")
   end
+
+  it "does not load psych, sqlite3, or json when only requiring 'gamechanger'" do
+    out = run_ruby(lib_dir, <<~RUBY)
+      require 'gamechanger'
+      %w[psych sqlite3 json].each do |lib|
+        puts "\#{lib}=\#{$LOADED_FEATURES.any? { |f| f.include?("/\#{lib}") }}"
+      end
+    RUBY
+    expect(out).to eq("psych=false\nsqlite3=false\njson=false\n")
+  end
+
+  it 'resolves Storage and DemoFixture via autoload, loading sqlite3 on first reference' do
+    out = run_ruby(lib_dir, <<~RUBY)
+      require 'gamechanger'
+      puts Gamechanger::Storage.name
+      puts Gamechanger::DemoFixture.name
+      puts $LOADED_FEATURES.any? { |f| f.include?('/sqlite3') }
+    RUBY
+    expect(out).to eq("Gamechanger::Storage\nGamechanger::DemoFixture\ntrue\n")
+  end
+
+  it 'resolves Formatters::Json and Formatters::Markdown via autoload' do
+    out = run_ruby(lib_dir, <<~RUBY)
+      require 'gamechanger'
+      puts Gamechanger::Formatters::Markdown.instance_method(:season_summary).name
+      puts $LOADED_FEATURES.any? { |f| f.include?('/json') }
+      puts Gamechanger::Formatters::Json.instance_method(:season_summary).name
+      puts $LOADED_FEATURES.any? { |f| f.include?('/json') }
+    RUBY
+    expect(out).to eq("season_summary\nfalse\nseason_summary\ntrue\n")
+  end
+
+  it 'loads psych only once Config reads or writes a YAML file' do
+    out = run_ruby(lib_dir, <<~RUBY)
+      require 'gamechanger'
+      require 'tmpdir'
+      Dir.mktmpdir do |dir|
+        cfg = File.join(dir, 'config.yml')
+        # No file on disk yet: load_config takes the early-return branch.
+        config = Gamechanger::Config.new(config_file: cfg)
+        puts $LOADED_FEATURES.any? { |f| f.include?('/psych') }
+        config.save(email: 'coach@example.test', password: 'secret')
+        puts $LOADED_FEATURES.any? { |f| f.include?('/psych') }
+        puts Gamechanger::Config.new(config_file: cfg).email
+      end
+    RUBY
+    expect(out).to eq("false\ntrue\ncoach@example.test\n")
+  end
 end

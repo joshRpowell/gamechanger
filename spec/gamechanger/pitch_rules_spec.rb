@@ -65,4 +65,69 @@ RSpec.describe Gamechanger::PitchRules do
     it('returns 0 for 85 pitches')                      { expect(rules.pitches_remaining(85)).to eq(0) }
     it('floors at 0 for pitches above max (96 pitches)') { expect(rules.pitches_remaining(96)).to eq(0) }
   end
+  # PERF: parsed dates are memoized so hot paths (tournament simulation,
+  # availability tables) pay Date.parse once per distinct date string.
+  describe '#parse_date' do
+    it 'returns nil for nil' do
+      expect(rules.parse_date(nil)).to be_nil
+    end
+
+    it 'parses a date string' do
+      expect(rules.parse_date('2026-03-15')).to eq(Date.new(2026, 3, 15))
+    end
+
+    it 'returns the identical object for a repeated string (memoized)' do
+      first  = rules.parse_date('2026-03-15')
+      second = rules.parse_date('2026-03-15')
+      expect(second).to equal(first)
+    end
+
+    it 'memoizes per string value, not per object identity' do
+      first  = rules.parse_date('2026-03-15')
+      second = rules.parse_date(String.new('2026-03-15'))
+      expect(second).to equal(first)
+    end
+
+    it 'keeps distinct date strings independent' do
+      expect(rules.parse_date('2026-03-15')).to eq(Date.new(2026, 3, 15))
+      expect(rules.parse_date('2026-03-16')).to eq(Date.new(2026, 3, 16))
+    end
+
+    it 'only calls Date.parse once per distinct string' do
+      allow(Date).to receive(:parse).and_call_original
+      3.times { rules.parse_date('2026-03-15') }
+      rules.parse_date('2026-03-16')
+      expect(Date).to have_received(:parse).twice
+    end
+
+    it 'returns a Date argument as-is without parsing' do
+      date = Date.new(2026, 3, 15)
+      allow(Date).to receive(:parse).and_call_original
+      expect(rules.parse_date(date)).to equal(date)
+      expect(Date).not_to have_received(:parse)
+    end
+
+    it 'parses non-Date, non-String values via to_s' do
+      expect(rules.parse_date(DateTime.new(2026, 3, 15, 12, 0, 0))).to eq(Date.new(2026, 3, 15))
+    end
+
+    it 'does not share its cache across instances' do
+      other = described_class.new
+      expect(other.parse_date('2026-03-15')).not_to equal(rules.parse_date('2026-03-15'))
+    end
+  end
+
+  describe '#available_date memoization' do
+    it 'reuses the parsed last outing date across calls' do
+      allow(Date).to receive(:parse).and_call_original
+      expect(rules.available_date('2026-03-15', 66)).to eq(Date.new(2026, 3, 19))
+      expect(rules.available_date('2026-03-15', 50)).to eq(Date.new(2026, 3, 17))
+      expect(Date).to have_received(:parse).once
+    end
+
+    it 'does not mutate the cached Date when adding rest days' do
+      rules.available_date('2026-03-15', 66)
+      expect(rules.parse_date('2026-03-15')).to eq(Date.new(2026, 3, 15))
+    end
+  end
 end

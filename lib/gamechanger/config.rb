@@ -1,7 +1,14 @@
 # frozen_string_literal: true
 
-require 'yaml'
 require 'fileutils'
+
+# NOTE: `yaml` (psych + psych.so, ~97ms) is deliberately NOT required here.
+# Config is eagerly loaded by lib/gamechanger.rb, but only the five private
+# methods that read or write YAML need psych, and commands like `version`,
+# `help`, and `demo` never call them. Each of those methods does a
+# method-local `require 'yaml'` instead — requires are idempotent and cheap
+# after the first call, and psych also defines the `Psych::Exception` the
+# rescue clauses reference.
 
 module Gamechanger
   class Config
@@ -134,6 +141,7 @@ module Gamechanger
     def clear_token
       session = self.class.session_file_path
       File.delete(session) if File.exist?(session)
+      invalidate_session_cache
     end
 
     private
@@ -141,6 +149,7 @@ module Gamechanger
     def existing_config_data
       return {} unless File.exist?(@config_file)
 
+      require 'yaml'
       YAML.safe_load(File.read(@config_file), symbolize_names: false) || {}
     rescue Psych::Exception => e
       raise ConfigError, "Malformed config at #{@config_file}: #{e.message}"
@@ -154,6 +163,7 @@ module Gamechanger
         return
       end
 
+      require 'yaml'
       data = YAML.safe_load(File.read(@config_file), symbolize_names: false) || {}
       @email           = data['email']
       @password        = data['password']
@@ -169,8 +179,30 @@ module Gamechanger
       raise ConfigError, "Malformed config at #{@config_file}: #{e.message}"
     end
 
+    # Parses the session file, memoized per Config instance (see also
+    # `@resolved_op_password`). `cached_token` / `cached_refresh_token` are hit
+    # 2-3x per API request (Client#authenticate + Client#build_request), so
+    # without this a 40-game sync paid ~80 File.read + Psych parses of the same
+    # tiny file. Every in-process mutation path (`write_session`, `clear_token`)
+    # invalidates the cache, so a mid-run token refresh is never served stale.
+    #
+    # The cache is keyed on the resolved session path, which depends on
+    # GAMECHANGER_HOME at call time — if that env var changes mid-process the
+    # next read goes back to disk rather than returning another home's session.
     def load_session
       session = self.class.session_file_path
+      return @session_cache if @session_cache_key == session
+
+      @session_cache_key = session
+      @session_cache = read_session(session)
+    end
+
+    def invalidate_session_cache
+      @session_cache_key = nil
+      @session_cache = nil
+    end
+
+    def read_session(session)
       return nil unless File.exist?(session)
 
       raw = File.read(session).strip
@@ -178,6 +210,7 @@ module Gamechanger
 
       # New YAML format
       if raw.start_with?('---') || raw.include?("\n")
+        require 'yaml'
         YAML.safe_load(raw) || nil
       # Legacy `<token>|<expires>` single-line format from pre-MFA auth.
       # Treat as access-only with no refresh available.
@@ -190,11 +223,13 @@ module Gamechanger
     end
 
     def write_session(data)
+      require 'yaml'
       session = self.class.session_file_path
       FileUtils.mkdir_p(File.dirname(session), mode: 0o700)
       File.open(session, File::WRONLY | File::CREAT | File::TRUNC, 0o600) do |f|
         f.write(YAML.dump(data))
       end
+      invalidate_session_cache
     end
 
     def resolve_op_password(ref)
@@ -215,6 +250,7 @@ module Gamechanger
     end
 
     def write_config(data)
+      require 'yaml'
       File.open(@config_file, File::WRONLY | File::CREAT | File::TRUNC, 0o600) do |f|
         f.write(YAML.dump(data))
       end

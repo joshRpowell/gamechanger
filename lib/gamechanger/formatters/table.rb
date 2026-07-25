@@ -128,12 +128,14 @@ module Gamechanger
           last_outing  = row['last_outing']
           last_pitches = row['last_pitches'].to_i
           seven_day    = row['seven_day_total'].to_i
-          avail        = rules.available_on?(target_date, last_outing, last_pitches)
           avail_date   = rules.available_date(last_outing, last_pitches)
+          # Derived from avail_date rather than a second available_on? call.
+          # nil last_outing means "always available" (matches available_on?).
+          avail        = last_outing.nil? || target_date >= avail_date
           remaining    = rules.pitches_remaining(last_pitches)
           high_load    = seven_day > 75
 
-          date_label = last_outing ? Date.parse(last_outing).strftime('%-m/%-d') : '—'
+          date_label = last_outing ? rules.parse_date(last_outing).strftime('%-m/%-d') : '—'
 
           if avail && high_load
             status = "⚠️ "
@@ -187,8 +189,8 @@ module Gamechanger
           lines << ""
           lines << "Post-tournament availability (for #{next_game_date.strftime('%-m/%-d')}):"
           projections.each do |proj|
-            avail      = rules.available_on?(next_game_date, proj.last_outing, proj.last_pitches)
             avail_date = rules.available_date(proj.last_outing, proj.last_pitches)
+            avail      = proj.last_outing.nil? || next_game_date >= avail_date
             remaining  = rules.pitches_remaining(proj.last_pitches)
 
             if avail

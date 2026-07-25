@@ -869,4 +869,25 @@ RSpec.describe Gamechanger::Formatters::Table do
       expect(output).to match(/Solo.*5.*5/m)
     end
   end
+  # PERF: `avail` is derived from the already-computed avail_date. Guard the
+  # nil-last_outing semantics: a pitcher who never pitched is always available,
+  # even for a target date before today.
+  describe '#availability nil last_outing semantics' do
+    let(:rows) do
+      [{ 'pitcher_name' => 'Pitcher One', 'last_outing' => nil,
+         'last_pitches' => '0', 'seven_day_total' => '0' }]
+    end
+
+    it 'reports available for a past target date' do
+      output = fmt.availability(today - 5, nil, rows, rules)
+      expect(output).to include('available')
+      expect(output).not_to include('rest day')
+    end
+
+    it 'reports available for a future target date' do
+      output = fmt.availability(today + 5, nil, rows, rules)
+      expect(output).to include('available')
+      expect(output).not_to include('rest day')
+    end
+  end
 end

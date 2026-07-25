@@ -34,11 +34,11 @@ module Gamechanger
       Commands::Setup.new(options: options, shell: shell).call
     end
 
-    desc 'pitches', 'Show pitcher workload for this season'
+    desc 'pitches', 'Show pitcher workload for this season (from cache)'
     option :pitcher,     type: :string,  desc: 'Filter to a single pitcher (substring match)'
     option :game,        type: :string,  desc: 'Show a single game by date (YYYY-MM-DD)'
     option :game_number, type: :numeric, default: 1, desc: 'Game number for doubleheaders (1 or 2)'
-    option :refresh,     type: :boolean, default: false, desc: 'Force re-fetch of non-final games from Gamechanger'
+    option :refresh,     type: :boolean, default: false, desc: 'Sync from Gamechanger (re-fetching non-final games) before displaying; omit to read the cache only'
     option :sort,        type: :string,  desc: 'Sort season summary by column key (name, gp, pitches, strikes, balls, pct, ip_share, era, whip, k9, bb9, baa, p_ip, p_bf, avg, 7day, last)'
     option :desc,        type: :boolean, default: false, desc: 'Sort descending'
     option :advanced,    type: :boolean, default: false, desc: 'Show advanced rate columns (BB/9, BAA, P/IP)'

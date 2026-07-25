@@ -892,4 +892,17 @@ RSpec.describe Gamechanger::Formatters::Markdown do
       expect(output).to include('| .')
     end
   end
+  # PERF: `avail` is derived from avail_date — nil last_outing stays available.
+  describe '#availability nil last_outing semantics' do
+    let(:rows) do
+      [{ 'pitcher_name' => 'Pitcher One', 'last_outing' => nil,
+         'last_pitches' => '0', 'seven_day_total' => '0' }]
+    end
+
+    it 'reports available for a past target date' do
+      output = fmt.availability(Date.today - 5, nil, rows, rules)
+      expect(output).to include('available')
+      expect(output).not_to include('rest day')
+    end
+  end
 end
