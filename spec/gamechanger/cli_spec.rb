@@ -295,12 +295,20 @@ RSpec.describe Gamechanger::CLI do
           .to output(/3 games.*8 outings.*45 at-bats/i).to_stdout
       end
 
-      it 'uses force: true on the syncer' do
+      it 'uses force: true on the syncer and keeps already-final games cached' do
         syncer = instance_double(Gamechanger::Syncer,
                                  run: Gamechanger::SyncResult.new(0, 0, 0))
         allow(Gamechanger::Syncer).to receive(:new).and_return(syncer)
         described_class.start(['refresh'])
-        expect(syncer).to have_received(:run).with(force: true)
+        expect(syncer).to have_received(:run).with(force: true, refetch_final: false)
+      end
+
+      it 'passes refetch_final: true when --force is given' do
+        syncer = instance_double(Gamechanger::Syncer,
+                                 run: Gamechanger::SyncResult.new(0, 0, 0))
+        allow(Gamechanger::Syncer).to receive(:new).and_return(syncer)
+        described_class.start(['refresh', '--force'])
+        expect(syncer).to have_received(:run).with(force: true, refetch_final: true)
       end
     end
 

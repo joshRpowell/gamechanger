@@ -48,6 +48,8 @@ module Gamechanger
 
     desc 'refresh', 'Sync latest game data from Gamechanger'
     option :format, type: :string, default: 'human', desc: 'Output format (human, json)'
+    option :force,  type: :boolean, default: false,
+                    desc: 'Also re-download games already cached as final (slow; one request each)'
     def refresh
       Commands::Refresh.new(options: options, shell: shell).call
     end

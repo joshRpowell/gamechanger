@@ -16,14 +16,14 @@ RSpec.describe Gamechanger::Commands::Refresh do
   end
 
   describe '#call (default human format)' do
-    it 'syncs with force: true and prints a human count line in green' do
+    it 'syncs with force: true, leaves final games cached, and prints a green count line' do
       result = Gamechanger::SyncResult.new(3, 8, 45)
       syncer = instance_double(Gamechanger::Syncer, run: result)
       allow(Gamechanger::Syncer).to receive(:new).with(config, storage).and_return(syncer)
 
       command.call
 
-      expect(syncer).to have_received(:run).with(force: true)
+      expect(syncer).to have_received(:run).with(force: true, refetch_final: false)
       expect(shell).to have_received(:say).with('3 games, 8 outings, 45 at-bats updated.', :green)
     end
 
@@ -34,6 +34,19 @@ RSpec.describe Gamechanger::Commands::Refresh do
       command.call
 
       expect(shell).to have_received(:say).with('1 game, 1 outing, 1 at-bat updated.', :green)
+    end
+  end
+
+  describe '#call --force' do
+    let(:command) { described_class.new(options: { force: true }, shell: shell) }
+
+    it 'asks the syncer to re-download games already cached as final' do
+      syncer = instance_double(Gamechanger::Syncer, run: Gamechanger::SyncResult.new(0, 0, 0))
+      allow(Gamechanger::Syncer).to receive(:new).and_return(syncer)
+
+      command.call
+
+      expect(syncer).to have_received(:run).with(force: true, refetch_final: true)
     end
   end
 

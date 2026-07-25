@@ -73,6 +73,31 @@ RSpec.describe Gamechanger::Storage do
     end
   end
 
+  describe '#pitcher_stats?' do
+    before do
+      storage.upsert_game(
+        game_id: 'game-001', game_date: '2026-03-10',
+        opponent: 'Blue Jays', home_away: 'home', status: 'final'
+      )
+    end
+
+    it 'is true once pitcher stats have been cached for the game' do
+      storage.upsert_pitcher_stats(
+        game_id: 'game-001',
+        stats: [{ pitcher_name: 'Pitcher One', pitches_thrown: 50, strikes_thrown: 30, innings_pitched: 3.0 }]
+      )
+      expect(storage.pitcher_stats?('game-001')).to be(true)
+    end
+
+    it 'is false for a game with no cached pitcher stats' do
+      expect(storage.pitcher_stats?('game-001')).to be(false)
+    end
+
+    it 'is false for a game_id that is not in the cache at all' do
+      expect(storage.pitcher_stats?('nonexistent')).to be(false)
+    end
+  end
+
   describe '#upsert_pitcher_stats and #season_summary' do
     before do
       storage.upsert_game(game_id: 'g1', game_date: '2026-03-01', opponent: 'A', home_away: 'home', status: 'final')

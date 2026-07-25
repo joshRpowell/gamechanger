@@ -109,6 +109,18 @@ RSpec.describe Gamechanger::Syncer do
       .to_return(status: 200, body: boxscore_response.to_json)
   end
 
+  # A game the syncer has genuinely finished with: final status *and* cached stats.
+  def cache_final_game_with_stats
+    storage.upsert_game(
+      game_id: 'game-uuid-1', game_date: '2026-03-01',
+      opponent: 'Eagles', home_away: 'home', status: 'final'
+    )
+    storage.upsert_pitcher_stats(
+      game_id: 'game-uuid-1',
+      stats: [{ pitcher_name: 'Alice Smith', pitches_thrown: 65, strikes_thrown: 42, innings_pitched: 4.0 }]
+    )
+  end
+
   describe '#run' do
     context 'when team_id is not configured' do
       let(:config) do
@@ -201,10 +213,7 @@ RSpec.describe Gamechanger::Syncer do
       end
 
       it 'skips re-fetching final games when force is false' do
-        storage.upsert_game(
-          game_id: 'game-uuid-1', game_date: '2026-03-01',
-          opponent: 'Eagles', home_away: 'home', status: 'final'
-        )
+        cache_final_game_with_stats
         syncer.run(force: false)
         # game is already final — boxscore should NOT be re-fetched
         expect(WebMock).not_to have_requested(:get, /boxscore/)
@@ -221,6 +230,49 @@ RSpec.describe Gamechanger::Syncer do
         )
         syncer.run(force: true)
         expect(storage.all_games.map { |g| g['game_id'] }).not_to include('old-game')
+      end
+
+      # PERF-003 regression: `force: true` used to disable the final-game skip, so
+      # every `gamechanger refresh` re-downloaded every immutable final boxscore
+      # (one request + one RATE_LIMIT_SLEEP each). clear_non_final already removes
+      # the rows that legitimately need re-fetching.
+      it 'still skips games already cached as final' do
+        cache_final_game_with_stats
+        syncer.run(force: true)
+        expect(WebMock).not_to have_requested(:get, /boxscore/)
+      end
+
+      it 'does not sleep for a skipped final game' do
+        cache_final_game_with_stats
+        syncer.run(force: true)
+        expect(syncer).not_to have_received(:sleep)
+      end
+
+      it 're-fetches a final game whose boxscore was never parsed into stats' do
+        # Schedule feed can report a game as completed before its boxscore exists,
+        # leaving a 'final' row with no stats. Those must not be skipped.
+        storage.upsert_game(
+          game_id: 'game-uuid-1', game_date: '2026-03-01',
+          opponent: 'Eagles', home_away: 'home', status: 'final'
+        )
+        syncer.run(force: true)
+        expect(WebMock).to have_requested(:get, /game-uuid-1\/boxscore/).once
+      end
+    end
+
+    context 'with refetch_final: true' do
+      before { allow(syncer).to receive(:sleep) }
+
+      it 're-downloads boxscores for games already cached as final' do
+        cache_final_game_with_stats
+        syncer.run(force: true, refetch_final: true)
+        expect(WebMock).to have_requested(:get, /game-uuid-1\/boxscore/).once
+      end
+
+      it 'sleeps once per re-downloaded final game' do
+        cache_final_game_with_stats
+        syncer.run(force: true, refetch_final: true)
+        expect(syncer).to have_received(:sleep).with(Gamechanger::Client::RATE_LIMIT_SLEEP).once
       end
     end
 

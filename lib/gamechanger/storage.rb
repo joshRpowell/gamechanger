@@ -615,6 +615,15 @@ module Gamechanger
       db.execute('SELECT * FROM games WHERE game_id = ?', [game_id]).first
     end
 
+    # True when at least one pitcher-stat row has been cached for this game.
+    # Lets the syncer distinguish "final and already downloaded" from "the schedule
+    # feed called it final but we never managed to parse a boxscore for it".
+    # @param game_id [String] Gamechanger game ID
+    # @return [Boolean]
+    def pitcher_stats?(game_id)
+      !db.get_first_value('SELECT 1 FROM game_pitcher_stats WHERE game_id = ? LIMIT 1', [game_id]).nil?
+    end
+
     # Returns games that need re-fetching (in_progress or today's games).
     def stale_games
       today = Date.today.iso8601
