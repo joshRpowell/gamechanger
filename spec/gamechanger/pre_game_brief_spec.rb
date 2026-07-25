@@ -262,4 +262,33 @@ RSpec.describe Gamechanger::PreGameBrief do
       end
     end
   end
+  # PERF: `available` is derived from avail_date, which is nil when the pitcher
+  # has never pitched — that case must stay unconditionally available even when
+  # target_date is in the past.
+  describe '#pitcher_plan nil last_outing semantics' do
+    subject(:brief) do
+      described_class.new(
+        target_date: Date.today - 30,
+        availability_rows: [avail_row('Pitcher One')],
+        lineup_rows: [], arc_rows: [], equity_rows: [], rules: rules
+      )
+    end
+
+    it 'marks a never-pitched pitcher available with a nil avail_date' do
+      row = brief.pitcher_plan.first
+      expect(row['available']).to be true
+      expect(row['avail_date']).to be_nil
+    end
+
+    it 'marks a pitcher inside their rest window unavailable' do
+      resting = described_class.new(
+        target_date: Date.today,
+        availability_rows: [avail_row('Pitcher Two', last_outing: Date.today.to_s, last_pitches: 70)],
+        lineup_rows: [], arc_rows: [], equity_rows: [], rules: rules
+      )
+      row = resting.pitcher_plan.first
+      expect(row['available']).to be false
+      expect(row['avail_date']).to eq(Date.today + 4)
+    end
+  end
 end
