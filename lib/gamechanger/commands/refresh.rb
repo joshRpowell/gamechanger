@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'json'
-
 module Gamechanger
   module Commands
     # `gamechanger refresh` — force re-sync of latest game data.
@@ -16,6 +14,7 @@ module Gamechanger
             shell.say 'Syncing games from Gamechanger...', :cyan
             result = Syncer.new(config, storage).run(force: true)
             if options[:format] == 'json'
+              require 'json' # opt-in output format; keep json off the startup path
               puts JSON.generate({ games: result.games, outings: result.outings, at_bats: result.at_bats })
             else
               shell.say format_human(result), :green
