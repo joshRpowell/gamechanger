@@ -194,6 +194,116 @@ RSpec.describe Gamechanger::Config do
     end
   end
 
+  # PERF: load_session is hit 2-3x per API request (Client#authenticate +
+  # Client#build_request), so the parsed session is memoized per Config
+  # instance. These specs pin both the memoization and every invalidation path.
+  describe 'session memoization' do
+    let(:future) { Time.now.to_i + 3600 }
+
+    def session_reads
+      # Count only reads of the session file; the config file is read too.
+      @session_reads
+    end
+
+    before do
+      @session_reads = 0
+      allow(File).to receive(:read).and_wrap_original do |orig, path, *args|
+        @session_reads += 1 if path == session_file
+        orig.call(path, *args)
+      end
+    end
+
+    it 'reads and parses the session file only once across repeated reads' do
+      File.write(session_file, YAML.dump('access_token' => 'fake-access',
+                                         'access_expires' => future,
+                                         'refresh_token' => 'fake-refresh',
+                                         'refresh_expires' => future))
+
+      expect(config.cached_token).to eq('fake-access')
+      5.times { config.cached_token }
+      config.cached_refresh_token
+
+      expect(session_reads).to eq(1)
+    end
+
+    it 'returns identical data on every call' do
+      File.write(session_file, YAML.dump('access_token' => 'fake-access',
+                                         'access_expires' => future))
+      first = config.cached_token
+      expect(config.cached_token).to eq(first)
+      expect(config.cached_refresh_token).to be_nil
+    end
+
+    it 'memoizes the absence of a session file without re-reading' do
+      expect(config.cached_token).to be_nil
+      expect(config.cached_token).to be_nil
+      expect(session_reads).to eq(0)
+    end
+
+    it 'serves the new token after cache_tokens writes mid-process (no stale read)' do
+      File.write(session_file, YAML.dump('access_token' => 'fake-old',
+                                         'access_expires' => future))
+      expect(config.cached_token).to eq('fake-old')
+
+      config.cache_tokens(access_token: 'fake-refreshed', access_expires: future)
+
+      expect(config.cached_token).to eq('fake-refreshed')
+      expect(session_reads).to eq(2)
+    end
+
+    it 'serves the new token after cache_token writes mid-process' do
+      File.write(session_file, YAML.dump('access_token' => 'fake-old',
+                                         'access_expires' => future))
+      expect(config.cached_token).to eq('fake-old')
+
+      config.cache_token('fake-rotated', expires_at: future)
+
+      expect(config.cached_token).to eq('fake-rotated')
+    end
+
+    it 'preserves the refresh token across a cached access-only refresh' do
+      config.cache_tokens(access_token: 'fake-a1', access_expires: future,
+                          refresh_token: 'fake-r1', refresh_expires: future)
+      expect(config.cached_refresh_token).to eq('fake-r1')
+
+      config.cache_tokens(access_token: 'fake-a2', access_expires: future)
+
+      expect(config.cached_token).to eq('fake-a2')
+      expect(config.cached_refresh_token).to eq('fake-r1')
+    end
+
+    it 'returns nil after clear_token rather than the memoized token' do
+      File.write(session_file, YAML.dump('access_token' => 'fake-access',
+                                         'access_expires' => future))
+      expect(config.cached_token).to eq('fake-access')
+
+      config.clear_token
+
+      expect(config.cached_token).to be_nil
+      expect(config.cached_refresh_token).to be_nil
+    end
+
+    it 'returns nil after clear_token even when no session file existed' do
+      expect(config.cached_token).to be_nil
+      config.clear_token
+      expect(config.cached_token).to be_nil
+    end
+
+    it 'ignores the memoized session when GAMECHANGER_HOME changes mid-process' do
+      File.write(session_file, YAML.dump('access_token' => 'fake-home-a',
+                                         'access_expires' => future))
+      expect(config.cached_token).to eq('fake-home-a')
+
+      Dir.mktmpdir do |other_home|
+        File.write(File.join(other_home, 'session'),
+                   YAML.dump('access_token' => 'fake-home-b', 'access_expires' => future))
+        ENV['GAMECHANGER_HOME'] = other_home
+
+        expect(config.cached_token).to eq('fake-home-b')
+      end
+    end
+  end
+
   describe '1Password password resolution' do
     it 'is configured when only password_op_ref is set' do
       config.save(email: 'a@b.com', password_op_ref: 'op://Vault/Item/password')
