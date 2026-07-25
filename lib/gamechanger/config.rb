@@ -1,7 +1,14 @@
 # frozen_string_literal: true
 
-require 'yaml'
 require 'fileutils'
+
+# NOTE: `yaml` (psych + psych.so, ~97ms) is deliberately NOT required here.
+# Config is eagerly loaded by lib/gamechanger.rb, but only the five private
+# methods that read or write YAML need psych, and commands like `version`,
+# `help`, and `demo` never call them. Each of those methods does a
+# method-local `require 'yaml'` instead — requires are idempotent and cheap
+# after the first call, and psych also defines the `Psych::Exception` the
+# rescue clauses reference.
 
 module Gamechanger
   class Config
@@ -141,6 +148,7 @@ module Gamechanger
     def existing_config_data
       return {} unless File.exist?(@config_file)
 
+      require 'yaml'
       YAML.safe_load(File.read(@config_file), symbolize_names: false) || {}
     rescue Psych::Exception => e
       raise ConfigError, "Malformed config at #{@config_file}: #{e.message}"
@@ -154,6 +162,7 @@ module Gamechanger
         return
       end
 
+      require 'yaml'
       data = YAML.safe_load(File.read(@config_file), symbolize_names: false) || {}
       @email           = data['email']
       @password        = data['password']
@@ -178,6 +187,7 @@ module Gamechanger
 
       # New YAML format
       if raw.start_with?('---') || raw.include?("\n")
+        require 'yaml'
         YAML.safe_load(raw) || nil
       # Legacy `<token>|<expires>` single-line format from pre-MFA auth.
       # Treat as access-only with no refresh available.
@@ -190,6 +200,7 @@ module Gamechanger
     end
 
     def write_session(data)
+      require 'yaml'
       session = self.class.session_file_path
       FileUtils.mkdir_p(File.dirname(session), mode: 0o700)
       File.open(session, File::WRONLY | File::CREAT | File::TRUNC, 0o600) do |f|
@@ -215,6 +226,7 @@ module Gamechanger
     end
 
     def write_config(data)
+      require 'yaml'
       File.open(@config_file, File::WRONLY | File::CREAT | File::TRUNC, 0o600) do |f|
         f.write(YAML.dump(data))
       end
